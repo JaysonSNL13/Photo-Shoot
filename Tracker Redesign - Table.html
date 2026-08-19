@@ -1,0 +1,1264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<title>Photo Shoot Tracker</title>
+<style>
+  :root{
+    --bg:#f5f5f5; --card:#ffffff; --ink:#1d1d1f; --soft:#3a3a3a; --muted:#6e6e6e; --faint:#c7c7c7;
+    --line:#e6e6e6; --hover:#f3f3f3;
+    --green:#34c759; --green-ink:#1a7f37; --amber:#ff9f0a; --amber-ink:#b7791f;
+    --teal:#3a3a3a; --red:#ff3b30; --gray:#8e8e8e;
+    --green-bg:#e7f8ec; --amber-bg:#fff2e0; --gray-bg:#efefef;
+    --track:#e8e8e8; --field:#ededed;
+    /* shared column template — the frozen header row and every data row use this so they line up.
+       PO column removed: rows are now sub-grouped by PO under a PO bar (see render()). */
+    --cols:minmax(360px,2fr) 120px 84px 230px 120px 128px;
+    /* legacy hold tints referenced by the Tal styles */
+    --amber-line:#f0dcae; --holdbg:#fffaf0;
+    --shadow:0 1px 2px rgba(0,0,0,.05),0 1px 3px rgba(0,0,0,.06);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);}
+  body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.4;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:min(1400px,95vw);margin:0 auto;padding:22px 20px 60px;}
+
+  /* sticky top bar = header + search + frozen column-header row, all pinned together */
+  .topbar{position:sticky;top:0;z-index:30;background:var(--bg);margin:-22px -20px 18px;padding:22px 20px 12px;box-shadow:0 8px 14px -10px rgba(0,0,0,.14);}
+  /* header */
+  header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
+  h1{font-weight:600;font-size:22px;letter-spacing:-0.02em;margin:0;}
+  .subtitle{font-size:13px;color:var(--muted);margin-top:3px;}
+  .meta{display:flex;flex-direction:column;align-items:flex-end;gap:8px;}
+  #updated{font-size:12px;color:var(--muted);}
+  .metabtns{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;}
+  #syncstat{font-size:12px;}
+  #tallink,#refresh{font:inherit;font-size:14px;font-weight:500;border-radius:12px;padding:8px 15px;cursor:pointer;border:0;line-height:1;}
+  #tallink{background:var(--gray-bg);color:var(--ink);}
+  #tallink:hover{background:#e3e3e3;}
+  #refresh{background:var(--ink);color:#fff;}
+  #refresh:hover{background:#333;}
+  #refresh:disabled{opacity:.5;cursor:default;}
+
+  /* toolbar (search + export) + subtle summary line */
+  .toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;}
+  .field{display:flex;align-items:center;gap:8px;background:var(--field);border-radius:10px;padding:8px 12px;flex:1;min-width:220px;}
+  .field svg{width:15px;height:15px;fill:var(--gray);flex:none;}
+  .field input{border:0;background:transparent;outline:none;font:inherit;font-size:14px;width:100%;color:var(--ink);}
+  .field input::placeholder{color:var(--gray);}
+  .field input::-webkit-search-cancel-button{-webkit-appearance:none;}
+  .field:focus-within{box-shadow:inset 0 0 0 1.5px var(--soft);}
+  .xls{font:inherit;font-size:14px;font-weight:500;background:var(--gray-bg);color:var(--ink);border:0;border-radius:12px;padding:9px 15px;cursor:pointer;flex:none;}
+  .xls:hover{background:#e3e3e3;}
+  /* Sizes filter button + dropdown (monochrome; panel is fixed & appended to body so no overflow ancestor can clip it) */
+  .sizebtn{font:inherit;font-size:14px;font-weight:500;background:var(--gray-bg);color:var(--ink);border:0;border-radius:12px;padding:9px 15px;cursor:pointer;flex:none;}
+  .sizebtn:hover{background:#e3e3e3;}
+  .sizebtn.active{background:var(--ink);color:#fff;}
+  .sizemenu{position:fixed;z-index:200;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 6px 24px -6px rgba(0,0,0,.22),0 2px 8px rgba(0,0,0,.10);padding:8px;min-width:210px;max-width:320px;max-height:60vh;overflow:auto;}
+  .sizemenu .hd{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:2px 6px 8px;}
+  .sizemenu .hd .t{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;}
+  .sizemenu .clr{font:inherit;font-size:12px;color:var(--ink);background:none;border:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px;padding:0;}
+  .sizemenu .clr:hover{color:var(--soft);}
+  .sizemenu .grid{display:grid;grid-template-columns:repeat(3,minmax(58px,1fr));gap:2px;}
+  .sizemenu label{display:flex;align-items:center;gap:7px;font-size:13.5px;color:var(--ink);padding:7px 8px;border-radius:8px;cursor:pointer;user-select:none;white-space:nowrap;}
+  .sizemenu label:hover{background:var(--hover);}
+  .sizemenu input[type=checkbox]{accent-color:var(--ink);width:15px;height:15px;flex:none;cursor:pointer;}
+  .sizemenu .empty{font-size:12.5px;color:var(--muted);padding:8px;}
+  .summary{font-size:12.5px;color:var(--muted);white-space:nowrap;margin:8px 2px 0;}
+  .summary b{color:var(--ink);font-weight:600;} .summary .rdy{color:var(--green-ink);}
+
+  /* frozen table column-header row (lives in the sticky topbar) */
+  .ptable-head{display:grid;grid-template-columns:var(--cols);gap:14px;align-items:center;background:#fafafa;border:1px solid var(--line);border-radius:12px;padding:9px 16px;box-shadow:var(--shadow);margin-top:12px;}
+  .hcell{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;display:flex;align-items:center;gap:5px;position:relative;}
+  .hcell.sortable,.hcell.hmenu-trigger{cursor:pointer;user-select:none;}
+  .hcell.sortable:hover,.hcell.hmenu-trigger:hover{color:var(--soft);}
+  .hcell .car{font-size:9px;color:var(--gray);}
+  .hcell .aff{font-size:9px;color:var(--ink);}
+  .hcell .cur{font-size:10px;font-weight:600;color:var(--ink);text-transform:none;letter-spacing:0;}
+  .hcell.active{color:var(--ink);}
+  .hcell.active .car,.hcell.active .aff{color:var(--ink);}
+  .hcell.disabled{opacity:.4;}
+
+  /* header filter popover (iOS-style) */
+  .hmenu{position:fixed;z-index:80;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 6px 24px -6px rgba(0,0,0,.22),0 2px 8px rgba(0,0,0,.10);padding:5px;min-width:172px;}
+  .hmenu-item{font-size:13.5px;color:var(--ink);padding:9px 12px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+  .hmenu-item:hover{background:var(--hover);}
+  .hmenu-item.sel{color:var(--ink);font-weight:600;}
+  .hmenu-item.sel:after{content:'\2713';color:var(--ink);}
+
+  /* re-shoot — styled to match the main tracker (white rounded card, hairlines, monochrome) */
+  .reshoot{margin-bottom:18px;}
+  .reshoot .ttl{font-size:13px;font-weight:600;color:var(--muted);padding:2px 4px;}
+  .matchlist{border:1px solid var(--line);border-radius:12px;background:#fff;max-height:230px;overflow:auto;margin-top:10px;box-shadow:var(--shadow);}
+  .matchlist div{padding:10px 12px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--line);}
+  .matchlist div:last-child{border-bottom:0;}
+  .matchlist div:hover{background:var(--hover);}
+  .queue{margin-top:6px;}
+  /* re-shoot collapsible (renderQueue builds .bucket/.rs-toggle/.rs-body/.po/table) */
+  #rs-queue .bucket{margin-top:8px;}
+  .rs-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:15px;color:var(--ink);padding:8px 4px;user-select:none;}
+  .rs-toggle .car{font-size:13px;color:var(--muted);width:14px;display:inline-block;}
+  .rs-toggle:hover{color:var(--soft);}
+  .rs-collapsed .rs-body{display:none;}
+  #rs-queue .po{background:var(--card);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;}
+  #rs-queue table{width:100%;border-collapse:collapse;}
+  #rs-queue thead th{text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;padding:11px 16px 10px;border-bottom:1px solid var(--line);white-space:nowrap;background:#fafafa;}
+  #rs-queue tbody td{padding:12px 16px;border-bottom:1px solid var(--line);font-size:13.5px;vertical-align:top;color:var(--ink);}
+  #rs-queue tbody tr:last-child td{border-bottom:0;}
+  #rs-queue tbody tr:hover{background:var(--hover);}
+  #rs-queue .rs-name{font-size:14.5px;color:var(--ink);}
+  #rs-queue .rs-subcat{font-size:12px;color:var(--muted);margin-top:1px;}
+  #rs-queue .rs-note{font-size:11.5px;color:var(--teal);margin-top:3px;line-height:1.4;}
+  #rs-queue .tal-chips{flex-wrap:wrap;}
+  .c-cat{width:150px;color:var(--muted);} .c-pick{width:52px;text-align:center;} .c-shot{width:120px;}
+  .rs-notebtn{display:block;margin-bottom:6px;font:inherit;font-size:11px;color:var(--teal);background:none;border:0;text-decoration:underline;cursor:pointer;padding:0;}
+  .rs-remove{font:inherit;font-size:12px;font-weight:500;border:0;background:var(--gray-bg);color:var(--red);border-radius:9px;padding:6px 11px;cursor:pointer;}
+  .rs-remove:hover{background:#e3e3e3;}
+
+  /* month sections + table (main view) */
+  .month{margin-bottom:24px;}
+  .month-title{font-size:13px;font-weight:600;color:var(--muted);padding:0 4px 8px;margin-top:14px;}
+  .ptable{background:var(--card);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;margin-bottom:14px;}
+  /* PO grouping bar (one per PO within a month) — mirrors the Tal PO bar look */
+  .pobar{display:flex;align-items:center;gap:12px;padding:11px 18px;background:#fafafa;border-bottom:1px solid var(--line);}
+  .pobar .num{font-size:14px;font-weight:700;color:var(--ink);letter-spacing:.01em;white-space:nowrap;}
+  .pobar .cnt{font-size:12.5px;color:var(--muted);}
+  .pobar .sp{flex:1;}
+  .pobar .nb{font-size:12px;color:var(--muted);white-space:nowrap;}
+  .row{border-top:1px solid var(--line);}
+  .row:first-of-type{border-top:0;}
+  .trow{display:grid;grid-template-columns:var(--cols);gap:14px;align-items:center;padding:11px 16px;cursor:pointer;}
+  .c-cat{font-size:12.5px;color:var(--soft);}
+  .trow:hover{background:var(--hover);}
+  .row.rsub .trow{background:#fbfbfd;}                 /* suit piece rows: subtle tint */
+  .row.rsub .trow:hover{background:var(--hover);}
+  .row.rsub .c-item .nm{padding-left:14px;}            /* indent pieces under their suit */
+  .c-item{min-width:0;}
+  .c-item .nm{display:flex;align-items:center;gap:7px;}
+  .chev{color:var(--faint);font-size:15px;line-height:1;transition:transform .18s ease;flex:none;}
+  .row.open .chev{transform:rotate(90deg);}
+  .dot{width:8px;height:8px;border-radius:50%;flex:none;}
+  .dot.d-ready{background:var(--green);} .dot.d-needs{background:var(--amber);} .dot.d-wait{background:var(--faint);}
+  .rtitle{font-size:14.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;}
+  .rcat{font-size:12px;color:var(--muted);margin-top:1px;}
+  .rnote{font-size:11.5px;margin-top:3px;line-height:1.4;}
+  .rnote.amber{color:var(--amber-ink);} .rnote.teal{color:var(--teal);}
+  .c-needby{font-size:13px;color:var(--soft);white-space:nowrap;}
+  .c-upd{display:flex;flex-direction:column;gap:10px;}
+  .size-field{display:flex;align-items:flex-start;gap:9px;font-size:12px;line-height:1.35;}
+  .pt-lab{width:40px;flex:none;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);padding-top:1px;}
+  .pt-main{display:flex;flex-direction:column;gap:1px;min-width:0;}
+  .pt-size{font-size:12.5px;font-weight:600;color:var(--ink);overflow-wrap:anywhere;}
+  .pt-size.none{color:var(--faint);font-weight:400;}
+  .pt-status{color:var(--muted);font-size:11px;line-height:1.3;}
+  .pt-status.landed{color:var(--green-ink);font-weight:600;}
+  .pt-tag{display:inline-block;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:0 4px;margin-left:6px;}
+  .pt-tag{font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--soft);background:var(--gray-bg);border:1px solid var(--line);border-radius:5px;padding:1px 5px;}
+  .c-status{}
+  .c-shot{}
+  .pill{display:inline-block;font-size:12px;font-weight:600;border-radius:999px;padding:4px 11px;white-space:nowrap;}
+  .p-ready{background:var(--green-bg);color:var(--green-ink);}
+  .p-needs{background:var(--amber-bg);color:var(--amber-ink);}
+  .p-wait{background:var(--gray-bg);color:var(--muted);}
+  .rdetail{display:none;padding:2px 16px 15px 46px;background:#fafafc;border-top:1px solid var(--line);}
+  .row.open .rdetail{display:block;}
+  /* expand is split into two labelled sections: Samples + Notes */
+  .dsec{margin-top:12px;}
+  .dsec-h{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px;}
+  .dsub{font-size:11.5px;color:var(--muted);}
+  .dline{display:flex;gap:12px;font-size:13px;padding:4px 0;align-items:baseline;}
+  .dlab{color:var(--muted);min-width:120px;flex:none;}
+  .dval{color:var(--ink);}
+  .dval.amber{color:var(--amber-ink);} .dval.teal{color:var(--teal);} .dval.green{color:var(--green-ink);}
+  .linkbtn{margin-top:8px;font:inherit;font-size:13px;font-weight:500;color:var(--ink);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px;}
+  .none{color:var(--faint);}
+
+  /* iOS-ish shot select (shared by main view + re-shoot) */
+  select.shot{font:inherit;font-size:13px;font-weight:500;color:var(--ink);background-color:var(--gray-bg);border:0;border-radius:9px;padding:8px 26px 8px 11px;cursor:pointer;outline:none;-webkit-appearance:none;appearance:none;width:112px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%238e8e93' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");background-repeat:no-repeat;background-position:right 10px center;}
+  select.shot.is-shot{background-color:var(--ink);color:#fff;font-weight:600;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%23ffffff' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");}
+
+  .state{padding:46px 24px;text-align:center;color:var(--muted);background:var(--card);border-radius:16px;box-shadow:var(--shadow);}
+  footer{margin-top:22px;text-align:center;font-size:11px;color:var(--faint);}
+
+  @media (max-width:900px){
+    :root{--cols:minmax(200px,1.6fr) 100px 72px 190px 110px 116px;}
+  }
+  @media (max-width:680px){
+    .ptable-head{display:none;}
+    .trow{display:block;padding:12px 16px;}
+    .trow>div{margin-bottom:7px;}
+    .trow>div.c-shot{margin-bottom:0;}
+    .rdetail{padding-left:16px;}
+  }
+
+  /* ===== Tal approval overlay (iOS sheet) ===== */
+  #talOverlay{display:none;position:fixed;inset:0;background:var(--bg);z-index:60;overflow:auto;}
+  .tal-wrap{max-width:min(1500px,96vw);margin:0 auto;padding:0 20px 60px;}
+  .tal-sticky{position:sticky;top:0;background:var(--bg);z-index:10;padding:18px 0 12px;}
+  .tal-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px;}
+  .tal-head h2{font-size:22px;font-weight:600;letter-spacing:-0.02em;margin:0;}
+  .tal-legend{font-size:12.5px;color:var(--muted);line-height:1.55;background:var(--card);border-radius:14px;padding:13px 15px;margin:0 0 14px;box-shadow:var(--shadow);}
+  .tal-legend b{color:var(--ink);font-weight:600;}
+  .talbtn{font:inherit;font-size:14px;font-weight:500;border:0;border-radius:12px;background:var(--gray-bg);color:var(--ink);padding:8px 14px;cursor:pointer;}
+  .talbtn:hover{background:#e3e3e3;}
+  .tal-tabs{display:inline-flex;background:var(--track);border-radius:10px;padding:3px;gap:3px;margin:0 0 14px;}
+  .tal-tab{font:inherit;font-size:14px;font-weight:500;border:0;background:transparent;color:var(--ink);padding:8px 16px;cursor:pointer;border-radius:8px;}
+  .tal-tab.on{background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.12);}
+  .tal-tab .cnt{font-size:12px;color:var(--muted);margin-left:5px;} .tal-tab.on .cnt{color:var(--ink);}
+  .tal-toolbar{display:flex;align-items:center;gap:12px;margin:0 0 12px;flex-wrap:wrap;}
+  .tal-toolbar input[type=search]{font:inherit;font-size:14px;border:0;background:var(--field);border-radius:10px;padding:9px 13px;min-width:240px;outline:none;}
+  .tal-toolbar input[type=search]::placeholder{color:var(--gray);}
+  .tal-toolbar input[type=search]:focus{box-shadow:inset 0 0 0 1.5px var(--soft);}
+  .tal-counter{font-size:12.5px;color:var(--muted);}
+  .tal-month{font-size:13px;font-weight:600;color:var(--muted);padding:0 4px 8px;margin:24px 0 4px;}
+  .tal-month:first-child{margin-top:6px;}
+  .tal-po{background:var(--card);border-radius:16px;box-shadow:var(--shadow);margin-bottom:14px;overflow:hidden;}
+  .tal-pobar{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line);}
+  .tal-ponum{font-size:13px;font-weight:600;} .tal-pometa{font-size:12.5px;color:var(--muted);} .tal-pometa b{color:var(--soft);}
+  .tal-pocat{font-size:12px;color:var(--muted);}
+  .tal-needby{font-size:11.5px;font-weight:600;color:var(--soft);background:#eef0f2;border-radius:999px;padding:3px 11px;margin-left:6px;}
+  #talOverlay table{width:100%;border-collapse:collapse;}
+  /* Ready & On-Hold tables: lock column widths so every PO group lines up */
+  #tal-ready-view table,#tal-hold-view table{table-layout:fixed;}
+  #tal-ready-view td,#tal-hold-view td{vertical-align:top;overflow-wrap:anywhere;}
+  /* 4 cols now (Category removed): Item(auto) · PPS · TOPS · Status */
+  #tal-ready-view th:nth-child(2),#tal-ready-view td:nth-child(2),#tal-hold-view th:nth-child(2),#tal-hold-view td:nth-child(2){width:170px;}
+  #tal-ready-view th:nth-child(3),#tal-ready-view td:nth-child(3),#tal-hold-view th:nth-child(3),#tal-hold-view td:nth-child(3){width:200px;}
+  #tal-ready-view th:nth-child(4),#tal-ready-view td:nth-child(4),#tal-hold-view th:nth-child(4),#tal-hold-view td:nth-child(4){width:240px;}
+  #talOverlay th{text-align:left;font-size:11px;font-weight:600;color:var(--muted);padding:10px 16px;border-bottom:1px solid var(--line);}
+  #talOverlay td{padding:13px 16px;border-bottom:1px solid var(--line);vertical-align:top;font-size:14px;}
+  #talOverlay tbody tr:last-child td{border-bottom:0;}
+  #talOverlay td.it{font-weight:500;width:26%;} #talOverlay td.cat{color:var(--muted);width:110px;} #talOverlay td.oh{font-size:13px;} #talOverlay td.oh .lab{color:var(--muted);}
+  #talOverlay tr.heldrow td{background:var(--holdbg);}
+  .tal-actbox{width:216px;border-radius:12px;overflow:hidden;border:1px solid var(--line);display:flex;flex-direction:column;background:#fff;}
+  /* Shoot-with segmented control (PPS | TOPS) sits at the top of the action stack */
+  .tal-swrow{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid var(--line);background:#fafafa;}
+  .tal-swrow .lb{font-size:11px;font-weight:600;color:var(--muted);}
+  .tal-swseg{display:inline-flex;margin-left:auto;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+  .tal-swseg button{font:inherit;font-size:11.5px;font-weight:600;padding:4px 13px;border:0;background:#fff;color:var(--soft);cursor:pointer;line-height:1.4;}
+  .tal-swseg button+button{border-left:1px solid var(--line);}
+  .tal-swseg button.on{background:var(--ink);color:#fff;}
+  .tal-actbox .tal-approve{border:0;background:var(--ink);color:#fff;font:inherit;font-weight:600;font-size:14px;cursor:pointer;padding:12px;}
+  .tal-actbox .tal-approve:hover{background:#333;}
+  .tal-actbox .tal-hold{border:0;border-top:1px solid var(--line);background:#fff;color:var(--soft);font:inherit;font-weight:500;font-size:14px;cursor:pointer;padding:11px;}
+  .tal-actbox .tal-hold:hover{background:var(--hover);}
+  .tal-actbox .tal-bottom{display:flex;border-top:1px solid var(--line);}
+  .tal-actbox .tal-bottom button{flex:1;border:0;background:#fff;color:var(--soft);font:inherit;font-size:12px;font-weight:500;cursor:pointer;padding:9px 4px;white-space:nowrap;}
+  .tal-actbox .tal-bottom button:not(:last-child){border-right:1px solid var(--line);}
+  .tal-actbox .tal-bottom button:hover{background:var(--hover);}
+  .tal-actbox .tal-bottom button.on{background:var(--ink);color:#fff;}
+  .tal-smpl{display:flex;flex-direction:column;gap:7px;}
+  .tal-pg{display:flex;align-items:flex-start;gap:8px;}
+  .tal-pglab{font-size:11px;color:var(--muted);width:84px;flex:none;padding-top:2px;}
+  .tal-chips{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0;}
+  /* display mode: sizes read as one tidy comma-separated line in dark ink (wraps only if truly long) */
+  .tal-sizes{font-size:13px;font-weight:600;color:var(--ink);line-height:1.5;overflow-wrap:anywhere;}
+  .tal-chip{display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;color:var(--ink);line-height:1.5;padding:0;}
+  .tal-nosz{color:var(--muted);font-size:11.5px;font-style:italic;}
+  .tal-chip .x{display:none;cursor:pointer;color:var(--muted);font-weight:700;font-size:13px;}
+  .tal-chip .x:hover{color:var(--red);}
+  .tal-editing .tal-chip .x{display:inline;}
+  .tal-editing .tal-chip{background:#fff;border:1px solid var(--line);border-radius:8px;padding:3px 9px;}
+  .tal-addchip{display:none;align-items:center;font-size:12.5px;border:1px dashed var(--gray);color:var(--muted);border-radius:999px;padding:3px 11px;cursor:pointer;background:#fff;}
+  .tal-editing .tal-addchip{display:inline-flex;}
+  .tal-addchip:hover{border-color:var(--ink);color:var(--ink);}
+  .tal-note{font-size:12px;color:var(--amber-ink);margin-top:4px;}
+  .tal-shootnote{font-size:12px;color:var(--teal);margin-top:4px;}
+  .tal-edited{color:var(--green-ink);font-size:11px;}
+  .tal-partial{color:var(--amber-ink);font-size:12px;font-weight:600;}
+  .tal-inp{font:inherit;font-size:13px;border:1px solid var(--ink);border-radius:9px;padding:7px 9px;width:180px;}
+  .tal-state{font-size:12.5px;font-weight:600;} .tal-state.ok{color:var(--green-ink);} .tal-state.hd{color:var(--amber-ink);}
+  .tal-undo{font-size:12.5px;color:var(--ink);cursor:pointer;margin-left:8px;font-weight:500;text-decoration:underline;}
+  .tal-updmark{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--red);margin-left:6px;}
+  .tal-updmark .dot{width:6px;height:6px;border-radius:50%;display:inline-block;background:var(--red);}
+  .reasonline{font-size:12.5px;color:var(--ink);}
+  .reasonline .tal-state{margin-right:4px;}
+  /* hold reason picker */
+  .tal-holdpick{display:none;border-radius:12px;background:var(--amber-bg);padding:12px;margin-top:8px;}
+  .tal-holdpick.open{display:block;}
+  .tal-holdpick .lbl{font-size:12px;font-weight:600;color:var(--amber-ink);margin-bottom:8px;}
+  .tal-reasons{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;}
+  .tal-rchip{font:inherit;font-size:12.5px;border:1px solid var(--amber-line);background:#fff;color:var(--soft);border-radius:999px;padding:5px 12px;cursor:pointer;}
+  .tal-rchip:hover{border-color:var(--amber);color:var(--amber-ink);}
+  .tal-rchip.sel{background:var(--amber);border-color:var(--amber);color:#fff;}
+  .tal-holdpick input{width:100%;font:inherit;font-size:13px;border:1px solid var(--amber-line);border-radius:10px;padding:8px 10px;margin-bottom:8px;background:#fff;box-sizing:border-box;}
+  .tal-holdpick .acts{display:flex;gap:8px;}
+  .tal-holdpick .acts button{flex:1;font:inherit;font-size:13px;font-weight:500;padding:9px;cursor:pointer;border-radius:10px;border:1px solid;}
+  .tal-confirmhold{background:var(--amber);border-color:var(--amber);color:#fff;}
+  .tal-cancelhold{background:#fff;border-color:var(--line);color:var(--muted);}
+
+  /* ===== To-Approve 6-column layout (Item · PPS✎ · TOPS✎ · Shoot with · Product note · Action) — Category moved to the PO bar ===== */
+  .tal-approve-table th,.tal-approve-table td{padding:12px 12px;}
+  .tal-approve-table td.it,.tal-approve-table th:first-child{width:240px;}
+  .tal-approve-table td.it .tal-partial,.tal-approve-table td.it .tal-edited,.tal-approve-table td.it .tal-updmark{white-space:normal;}
+  /* clean monochrome dropdown (shoot-with + action) */
+  .tal-select{font:inherit;font-size:12.5px;font-weight:500;color:var(--ink);background-color:#fff;border:1px solid var(--line);border-radius:8px;padding:6px 26px 6px 10px;cursor:pointer;outline:none;-webkit-appearance:none;appearance:none;width:100%;max-width:118px;line-height:1.3;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%238e8e93' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");background-repeat:no-repeat;background-position:right 9px center;}
+  .tal-select:hover{border-color:var(--gray);}
+  .tal-select:focus{border-color:var(--soft);box-shadow:inset 0 0 0 1px var(--soft);}
+  .tal-select:disabled{opacity:.6;cursor:default;background-image:none;}
+  /* small gray pencil icon-button (darkens on hover) — replaces the old "Edit sizes" button, scoped per column */
+  .tal-pen{border:0;background:none;color:var(--gray);cursor:pointer;font-size:14px;line-height:1;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:7px;flex:none;transition:color .12s ease,background .12s ease;}
+  .tal-pen:hover{color:var(--ink);background:var(--gray-bg);}
+  .tal-pen.on{color:var(--ink);background:var(--gray-bg);box-shadow:inset 0 0 0 1px var(--line);}
+  .tal-sizecell{display:flex;align-items:flex-start;gap:4px;justify-content:space-between;}
+  .tal-sizecell>.tal-smpl{flex:1;min-width:0;}
+  .tal-notecell{display:flex;align-items:flex-start;gap:4px;}
+  .tal-notetext{font-size:12px;color:var(--amber-ink);line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;flex:1;min-width:0;}
+  .tal-notetext.shoot{color:var(--teal);}
+  .tal-noteadd{border:0;background:none;color:var(--gray);cursor:pointer;font:inherit;font-size:12px;padding:2px 0;white-space:nowrap;}
+  .tal-noteadd:hover{color:var(--ink);text-decoration:underline;}
+  .note-date{color:var(--muted);font-size:10.5px;font-weight:400;}
+  .tal-actsel{max-width:120px;}
+  /* reason picker anchored as a popover off the (narrow) Action cell so it isn't cramped */
+  .tal-actcell{position:relative;}
+  .tal-actcell .tal-holdpick{position:absolute;right:0;top:calc(100% + 4px);width:260px;z-index:20;margin-top:0;box-shadow:0 6px 24px -6px rgba(0,0,0,.22),0 2px 8px rgba(0,0,0,.10);}
+  /* Open state pops to a centered panel so the card's overflow:hidden can't clip the reasons/buttons */
+  .tal-actcell .tal-holdpick.open{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);right:auto;width:320px;max-width:92vw;z-index:1000;box-shadow:0 24px 70px -14px rgba(0,0,0,.45),0 4px 14px rgba(0,0,0,.15);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+  <header>
+    <div>
+      <h1>Photo Shoot Tracker</h1>
+    </div>
+    <div class="meta">
+      <div id="updated">&mdash;</div>
+      <div class="metabtns">
+        <span id="syncstat" style="color:#8a8f98">syncing&hellip;</span>
+        <button id="tallink" type="button">Tal approvals</button>
+        <button id="refresh" type="button">Refresh now</button>
+      </div>
+    </div>
+  </header>
+  <div id="syncbanner" style="display:none;margin:10px 0 0;padding:12px 14px;background:#fff2f1;border:1px solid #ffd7d3;border-radius:14px;color:#b42318;font-size:13px;line-height:1.5"></div>
+
+  <div class="toolbar">
+    <div class="field">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.7 10.3l3 3a1 1 0 0 1-1.4 1.4l-3-3a5.5 5.5 0 1 1 1.4-1.4zM6.5 11a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9z"/></svg>
+      <input id="search" type="search" placeholder="Search, or type a product to re-shoot&hellip;" />
+    </div>
+    <button class="sizebtn" id="sizebtn" type="button">Sizes</button>
+    <button class="xls" id="export" type="button">Download Excel</button>
+  </div>
+  <div class="summary">To&nbsp;shoot <b id="s-toshoot">&mdash;</b> &middot; Ready <b id="s-ready" class="rdy">&mdash;</b> &middot; <span id="count">&mdash;</span></div>
+
+  <div class="ptable-head">
+    <div class="hcell sortable" data-sort="name">Item Name<span class="aff"></span></div>
+    <div class="hcell sortable" data-sort="cat">Category<span class="aff"></span></div>
+    <div class="hcell sortable" data-sort="needby">Need by<span class="aff"></span></div>
+    <div class="hcell">PPS / TOPS updates</div>
+    <div class="hcell hmenu-trigger" data-menu="status">Status <span class="car">&#9662;</span><span class="cur"></span></div>
+    <div class="hcell hmenu-trigger" data-menu="shot">Shot / Not Shot <span class="car">&#9662;</span><span class="cur"></span></div>
+  </div>
+  </div><!-- /topbar -->
+
+  <section class="reshoot">
+    <div class="ttl">Re-shoot queue</div>
+    <div class="matchlist" id="rs-matches" style="display:none"></div>
+    <div class="queue" id="rs-queue"></div>
+  </section>
+
+  <section id="view"></section>
+  <div id="loading" class="state">Fetching latest data&hellip;</div>
+  <div id="error" class="state" style="display:none"></div>
+  <footer><span id="src"></span></footer>
+</div>
+
+<div id="talOverlay"><div class="tal-wrap">
+  <div class="tal-sticky">
+  <div class="tal-head"><h2>Tal — product approval</h2><button class="talbtn" id="tal-close" type="button">&larr; Back to tracker</button></div>
+  <div class="tal-tabs"><button class="tal-tab on" id="tal-tab-need" type="button" data-tab="need">To approve <span class="cnt" id="tal-cnt-need"></span></button><button class="tal-tab" id="tal-tab-hold" type="button" data-tab="hold">On hold <span class="cnt" id="tal-cnt-hold"></span></button><button class="tal-tab" id="tal-tab-ready" type="button" data-tab="ready">Ready to shoot <span class="cnt" id="tal-cnt-ready"></span></button></div>
+  <div class="tal-toolbar" id="tal-toolbar-need"><input id="tal-search" type="search" placeholder="Search PO or item&hellip;" /><span class="tal-counter" id="tal-counter">&mdash;</span><span style="flex:1"></span><button class="talbtn" id="tal-all" type="button">Approve all on hand</button></div>
+  </div>
+  <div id="tal-view"></div>
+  <div id="tal-empty" class="state" style="display:none">Nothing has a sample on hand right now.</div>
+  <div id="tal-hold-view" style="display:none"></div>
+  <div id="tal-hold-empty" class="state" style="display:none">Nothing is on hold right now.</div>
+  <div id="tal-ready-view" style="display:none"></div>
+  <div id="tal-ready-empty" class="state" style="display:none">Nothing has been approved yet.</div>
+</div></div>
+
+<script>
+(function(){
+  var CONFIG={owner:'jaysonsnl13',repo:'New-Launch',branch:'main',file:'PhotoShootJSON.json',baseFile:'PhotoBaseJSON.json',catalogFile:'ProductCatalog.json',searchPoolFile:'ReshootPool.json',talUrl:'Tal_Product_Approval.html',
+    saveEndpoint:'https://script.google.com/macros/s/AKfycby3BUWU62_-71CB301fFaf6vLZNf0csIcWbRxm6LwdNOOqn9y4vmHtqhlgyFEtm4sK3cg/exec',
+    refreshMs:60*60*1000};
+  var MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var state={all:[],units:[],filtered:[],flags:{},reshoot:[],catalog:[],searchPool:[],filters:{ready:'all',shot:'active',q:'',size:[]},sort:{key:null,dir:1}};
+  var talPending={};  // local writes (approve/shot/edits) not yet confirmed by the server — protected from the sync clobber
+  var reshootOpen=false;  // "Style for Reshoot" collapsible — collapsed by default; flips when the user toggles the header
+  var $=function(s){return document.querySelector(s);};
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function key(i){return (i.poRef||'')+'|'+(i.parentName||'');}
+  function F(i){return state.flags[key(i)]||{};}
+
+  // ---- shot status (saved + synced) ----
+  var LS='shootTrackerFlags.v1', LSR='shootTrackerReshoot.v1', LSP='shootTrackerPending.v1';
+  // Note "added" dates — kept in a SEPARATE key so the "Refresh now" cache-clear (which wipes LS/LSR/LSP) doesn't lose them.
+  var LSND='shootTrackerNoteDates.v1'; var noteDates={};
+  function loadNoteDates(){try{noteDates=JSON.parse(localStorage.getItem(LSND)||'{}')||{};}catch(e){noteDates={};}}
+  // First-add semantics: stamp today's date the first time a note gets a value; clearing the note removes the date; editing keeps the original.
+  function stampNote(k,field,hasVal){var e=noteDates[k]||{};if(hasVal){if(!e[field])e[field]=new Date().toISOString().slice(0,10);}else{if(e[field])delete e[field];}
+    if(Object.keys(e).length)noteDates[k]=e;else delete noteDates[k];try{localStorage.setItem(LSND,JSON.stringify(noteDates));}catch(e2){}}
+  function noteDateOf(k,field){var e=noteDates[k];var iso=e&&e[field];return iso?fmtShort(iso):'';}
+  function loadLocal(){try{state.flags=JSON.parse(localStorage.getItem(LS)||'{}')||{};}catch(e){state.flags={};} try{state.reshoot=JSON.parse(localStorage.getItem(LSR)||'[]')||[];}catch(e){state.reshoot=[];} try{talPending=JSON.parse(localStorage.getItem(LSP)||'{}')||{};}catch(e){talPending={};}}
+  function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(state.flags));}catch(e){} try{localStorage.setItem(LSR,JSON.stringify(state.reshoot));}catch(e){} try{localStorage.setItem(LSP,JSON.stringify(talPending));}catch(e){}}
+  function shotOf(i){var f=F(i);return f.shot||f.shotStatus||i.shotStatus||'Not Shot';}
+  function postSave(body){if(!CONFIG.saveEndpoint)return;try{fetch(CONFIG.saveEndpoint,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body)});}catch(e){}}
+  function repostPending(){try{Object.keys(talPending).forEach(function(k){var pf=talPending[k];if(!pf||!Object.keys(pf).length)return;var idx=k.indexOf('|');if(idx<0)return;var b={poRef:k.slice(0,idx),parentName:k.slice(idx+1)};Object.keys(pf).forEach(function(f){if(f==='shot')b.shotStatus=pf[f];else b[f]=pf[f];});postSave(b);});}catch(e){}}  // retry any write the server hasn't confirmed yet
+  function saveShot(i,val){var k=key(i);state.flags[k]=Object.assign({},state.flags[k],{shot:val,shotStatus:val});talPending[k]=Object.assign({},talPending[k],{shot:val});saveLocal();postSave({poRef:i.poRef,parentName:i.parentName,shotStatus:val});applyFilters();}
+  // Visible sync state: shows the last successful sync time, or a red banner if the live read fails (usually a sign-in issue).
+  function setSync(ok){var el=document.getElementById('syncstat');var bn=document.getElementById('syncbanner');var t=new Date().toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});if(el){el.textContent=ok?('✓ Last sync '+t):'⚠ Live status not loading';el.style.color=ok?'#1a7f37':'#b42318';}if(bn){if(ok){bn.style.display='none';}else{bn.style.display='block';bn.innerHTML='⚠ Couldn\'t load live approvals from the server, so approvals &amp; holds may be out of date. Make sure you\'re signed into your <b>@stateandliberty.com</b> Google account in this browser, then click <b>Refresh now</b>. Still stuck? Try an Incognito window.';}}}
+  function liveLoadStatus(){if(!CONFIG.saveEndpoint)return;var cb='__ps_'+Date.now()+'_'+Math.floor(Math.random()*1e6);var done=false;var to=setTimeout(function(){if(done)return;done=true;setSync(false);try{delete window[cb];}catch(e){}},12000);window[cb]=function(map){if(done)return;done=true;clearTimeout(to);try{if(map&&typeof map==='object'){Object.keys(map).forEach(function(k){var v=map[k];if(typeof v==='string')v={shot:v};state.flags[k]=Object.assign({},state.flags[k],v);if(talPending[k]){var pf=talPending[k];Object.keys(pf).forEach(function(ff){if(String(v&&v[ff]!=null?v[ff]:'')===String(pf[ff]!=null?pf[ff]:''))delete pf[ff];});if(Object.keys(pf).length)state.flags[k]=Object.assign({},state.flags[k],pf);else delete talPending[k];}});saveLocal();repostPending();if(state.all.length)applyFilters();setSync(true);}}catch(e){}try{delete window[cb];}catch(e){}};var s=document.createElement('script');s.src=CONFIG.saveEndpoint+'?callback='+cb+'&t='+Date.now();s.onerror=function(){if(done)return;done=true;clearTimeout(to);setSync(false);try{delete window[cb];}catch(e){}};document.head.appendChild(s);}
+
+  // ---- derived ----
+  function ppsLanded(i){return !!i.ppsLanded;}
+  function topsLanded(i){return !!i.topsLanded;}
+  function topsShipped(i){if(topsLanded(i))return true;var d=(i.topsDisplay||'');if(/label created|not yet received|not yet shipped|ETD|to ship|awaiting/i.test(d))return false;if(/ship|transit|landing|out for delivery|deliver|picked up|en route/i.test(d))return true;return !!i.topsTracking;}
+  function sampleOn(i){return i.isSuit?i.suitReady:(ppsLanded(i)||topsLanded(i));}
+  // PPS retires once TOPS is confirmed (shipped/locked/landed): collapse PPS to "sizing approved" so no one
+  // preps PPS gear. Respect an explicit Tal PPS shoot-with choice (talRecSize==='PPS') — then keep PPS visible.
+  function ppsRetired(i){if(i.isSuit)return false;if((F(i).talRecSize||'')==='PPS')return false;return topsShipped(i);}
+  function talApproved(i){return (state.flags[key(i)]||{}).talStatus==='Approved';}
+  function shootWithOf(i){if(i.isSuit)return 'per piece';var man=((state.flags[key(i)]||{}).talRecSize||'');if(man==='PPS'||man==='TOPS')return man;if(topsShipped(i))return 'TOPS';if(i.substitute)return 'TOPS';if(ppsLanded(i))return 'PPS';return i.topsSize?'TOPS':'PPS';}
+  function chosenLanded(i){if(i.isSuit)return !!i.suitReady;var sw=shootWithOf(i);if(sw==='TOPS')return topsLanded(i);if(sw==='PPS')return ppsLanded(i)&&!i.substitute;return false;}
+  function isReady(i){return talApproved(i)&&chosenLanded(i);}
+  function needByISO(i){var d=i.bulkEtaDate||'';if(d.length<10)return '';var dt=new Date(d+'T00:00:00');dt.setDate(dt.getDate()-14);return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');}
+  function fmtShort(iso){if(!iso||iso.length<10)return iso||'';return MONTHS[+iso.slice(5,7)-1].slice(0,3)+' '+(+iso.slice(8,10));}
+  // DISPLAY-ONLY size cleaner: some feed size values have narrative baked in
+  // (e.g. "M (landed); remaining shipped 5/22, S, L" or "orig S,M,L,XL,2XL; revised M & L").
+  // Return just the size list: cut at the first "(" or ";", trim trailing punctuation, drop a trivial
+  // leading "orig"/"revised" label. The FULL original string is still surfaced in the row expand (buildDetail).
+  // TODO(long-term): have the refresh parser emit a clean ppsSize/topsSize + a separate size-note field so
+  // this client-side scrub is unnecessary.
+  function cleanSize(s){s=String(s==null?'':s).trim();if(!s)return '';var cut=s.search(/[;(]/);if(cut>=0)s=s.slice(0,cut);s=s.replace(/[\s,;·\-]+$/,'').trim();s=s.replace(/^(orig(inal)?|revised)\b[:\s]*/i,'').trim();return s;}
+
+  // ---- size filter helpers (Sizes filter — main list + Excel export) ----
+  // normalize a single token: abbrevSize (Medium->M, 3xl->3XL, x-large->XL) then trim + uppercase.
+  function normSize(tok){return abbrevSize(String(tok==null?'':tok).trim()).toUpperCase();}
+  // allowlist real size tokens; drops junk like "one size" / "sizing" / "approved" / empty.
+  // letters: XS S M L XL XXL XXXL 2XL..9XL ; numerics 30/32/38/40 with optional short/reg/long suffix (38S,42R,40L).
+  function validSize(t){if(!t)return false;if(/^(XS|S|M|L|XL|XXL|XXXL|[2-9]XL)$/.test(t))return true;if(/^\d{1,3}[SRLXT]?$/.test(t))return true;return false;}
+  // turn a raw feed size string into a list of normalized valid size tokens (cleanSize strips narrative first).
+  function sizeTokensFrom(raw){var s=cleanSize(raw||'');if(!s)return [];return s.split(/[,\s/|]+/).map(function(t){return normSize(t);}).filter(validSize);}
+  // an item's available sizes = union of its PPS + TOPS sizes (manual overrides if present; suits union across pieces).
+  function itemSizes(i){var set={};function add(raw){sizeTokensFrom(raw).forEach(function(t){set[t]=true;});}
+    if(i.isSuit){(i.pieces||[]).forEach(function(p){add((F(p).manualPpsSize)||p.ppsSize||'');add((F(p).manualTopsSize)||p.topsSize||'');});}
+    else{add((F(i).manualPpsSize)||i.ppsSize||'');add((F(i).manualTopsSize)||i.topsSize||'');}
+    return Object.keys(set);}
+  // sort key: letter sizes in garment order, then numerics ascending, then short/suffixed sizes.
+  function sizeRank(s){var order=['XS','S','M','L','XL','XXL','2XL','XXXL','3XL','4XL','5XL','6XL','7XL','8XL','9XL'];var idx=order.indexOf(s);if(idx>=0)return [0,idx,''];if(/^\d+$/.test(s))return [1,parseInt(s,10),''];var m=s.match(/^(\d+)([A-Z]+)$/);if(m)return [2,parseInt(m[1],10),m[2]];return [3,0,s];}
+  // distinct sizes across all current units, sorted for the menu.
+  function allSizes(){var set={};state.units.forEach(function(u){itemSizes(u).forEach(function(s){set[s]=true;});});
+    return Object.keys(set).sort(function(a,b){var ra=sizeRank(a),rb=sizeRank(b);for(var i=0;i<ra.length;i++){if(ra[i]!==rb[i])return ra[i]<rb[i]?-1:1;}return 0;});}
+  function sizeFilterHit(i){var sel=state.filters.size;if(!sel||!sel.length)return true;var szs=itemSizes(i);return sel.some(function(s){return szs.indexOf(s)!==-1;});}
+
+  // ---- suit merge ----
+  var DRESS=['blazers','blazer','dress pants','dress pant','suit pants','suit pant','short blazers','short blazer'];
+  var CASUAL=['casual blazers','casual blazer','casual pants','casual pant'];
+  var IGN=['mini','micro','short','unstructured'];
+  function nc(c){return String(c||'').toLowerCase().trim();}
+  function fam(c){c=nc(c);return DRESS.indexOf(c)!==-1?'dress':(CASUAL.indexOf(c)!==-1?'casual':null);}
+  function role(c){c=nc(c);return c.indexOf('short blazer')!==-1?'short':(c.indexOf('blazer')!==-1?'blazer':(c.indexOf('pant')!==-1?'pant':null));}
+  function pat(n){var p=String(n).split(' - ');if(p.length<2)return n;if(p[p.length-1].trim().toLowerCase()==='short')p.pop();return p.slice(1).join(' - ').trim();}
+  function pk(p){return String(p).toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(function(w){return w&&IGN.indexOf(w)===-1;}).sort().join(' ');}
+  function consolidateSuits(items){
+    var g={},used={};
+    items.forEach(function(i){var f=fam(i.category),r=role(i.category);if(!f||!r)return;var pkk=pk(pat(i.parentName));if(!pkk)return;var k=f+'|'+pkk;if(!g[k])g[k]={fam:f,roles:{},all:[]};if(!g[k].roles[r])g[k].roles[r]=i;g[k].all.push(i);});
+    var suits=[];
+    Object.keys(g).forEach(function(k){var x=g[k],r=x.roles,n=(r.blazer?1:0)+(r.pant?1:0)+(r.short?1:0);if(n<2)return;x.all.forEach(function(p){used[key(p)]=true;});suits.push(buildSuit(x));});
+    return suits.concat(items.filter(function(i){return !used[key(i)];}));
+  }
+  function buildSuit(g){
+    var pieces=['blazer','pant','short'].map(function(rr){return g.roles[rr];}).filter(Boolean);
+    var etas=pieces.map(function(p){return p.bulkEtaDate||'';}).filter(Boolean).sort();
+    var disp=pieces.map(function(p){return pat(p.parentName);}).sort(function(a,b){return b.length-a.length;})[0]||'Suit';
+    var po={};pieces.forEach(function(p){if(p.poRef)po[p.poRef]=1;});
+    var ep=pieces.slice().sort(function(a,b){return (a.bulkEtaDate||'').localeCompare(b.bulkEtaDate||'');})[0];
+    return {isSuit:true,pieces:pieces,parentName:(g.fam==='casual'?'Casual Suit — ':'Suit — ')+disp,category:(g.fam==='casual'?'Casual Suit':'Suits'),
+      poRef:'SUIT|'+g.fam+'|'+disp,poRefs:Object.keys(po),bulkEtaDate:etas[0]||'',bulkEta:(ep&&ep.bulkEta)||'',bulkExf:(ep&&ep.bulkExf)||'',
+      suitReady:pieces.every(function(p){return ppsLanded(p)||topsLanded(p);}),shotStatus:'Not Shot'};
+  }
+
+  // ---- load ----
+  function fileUrl(f){return 'https://raw.githubusercontent.com/'+CONFIG.owner+'/'+CONFIG.repo+'/'+CONFIG.branch+'/'+f+'?t='+Date.now();}
+  function fetchJson(f){return fetch(fileUrl(f),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});}
+  function load(){$('#loading').style.display='block';$('#error').style.display='none';$('#refresh').disabled=true;
+    fetchJson(CONFIG.file).then(function(d){ingest(d);}).catch(function(){return fetchJson(CONFIG.baseFile).then(function(d){ingest(d);});})
+    .catch(function(){$('#loading').style.display='none';$('#error').style.display='block';$('#error').textContent='Could not load the feed.';})
+    .then(function(){$('#refresh').disabled=false;});}
+  function ingest(d){state.all=Array.isArray(d.items)?d.items:[];$('#updated').textContent=d.lastUpdated?('Source updated '+fmtUpdated(d.lastUpdated)):'';applyFilters();renderQueue();$('#loading').style.display='none';}
+  function fmtUpdated(iso){try{return new Date(iso).toLocaleString(undefined,{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'});}catch(e){return iso;}}
+  // Full product catalog for the re-shoot search (so already-launched products like "Springer" are findable).
+  // Accepts ["Name", ...] or [{parentName, category, poRef}, ...]. Falls back to the feed if unavailable.
+  function loadCatalog(){fetchJson(CONFIG.catalogFile).then(function(d){var arr=Array.isArray(d)?d:(d.items||d.products||[]);state.catalog=arr.map(function(x){return typeof x==='string'?{name:x,category:'',po:'',sizes:''}:{name:x.parentName||x.name||'',category:x.category||'',po:x.poRef||x.po||'',sizes:x.sizes||''};}).filter(function(x){return x.name;});}).catch(function(){state.catalog=[];});}
+  // Re-shoot manual-add search pool: products RESTOCKED in the last 30 days OR with an incoming PO On Order.
+  // Sourced from ReshootPool.json (same repo, same fetch style + cache-bust). The Apps Script buildReshootPool()
+  // already pre-filters to (restock ≤ 30 days OR has PO), so there is NO client-side date/incoming filtering here.
+  // Deduped by name (case-insensitive, first wins). Empty on failure → reshootSource falls back to the feed.
+  function loadSearchPool(){fetchJson(CONFIG.searchPoolFile).then(function(d){var arr=Array.isArray(d)?d:(d.products||[]);var seen={},pool=[];arr.forEach(function(p){var nm=p&&p.name||'';if(!nm)return;var kk=nm.toLowerCase();if(seen[kk])return;seen[kk]=true;pool.push({name:nm,po:(p.hasPO?'PO on order':''),category:''});});state.searchPool=pool;}).catch(function(){state.searchPool=[];});}
+
+  // ---- filter + render ----
+  function qHit(hay,q){return q.split(/\s+/).every(function(t){return !t||hay.indexOf(t)!==-1;});}  // every typed word must appear (order-independent AND match)
+  function matches(i,f,q){
+    var shot=shotOf(i)==='Shot';
+    if(f.shot==='active'&&shot)return false;
+    if(f.shot==='shot'&&!shot)return false;
+    if(f.shot==='active'){   // sub-filter applies only within the Not Shot view
+      if(f.ready==='ready'&&!isReady(i))return false;
+      if(f.ready==='needs'&&!(sampleOn(i)&&!talApproved(i)))return false;
+      if(f.ready==='notarrived'&&sampleOn(i))return false;
+    }
+    if(q){var hay=(i.isSuit?(i.parentName+' '+i.poRefs.join(' ')+' '+i.pieces.map(function(p){return p.parentName+' '+(p.ppsSize||'')+' '+(p.topsSize||'');}).join(' ')):((i.parentName||'')+' '+(i.category||'')+' '+(i.poRef||'')+' '+(i.ppsSize||'')+' '+(i.topsSize||''))).toLowerCase();if(!qHit(hay,q))return false;}
+    if(!sizeFilterHit(i))return false;   // Sizes filter (ANY match against PPS+TOPS-combined available sizes)
+    return true;
+  }
+  function applyFilters(){
+    var f=state.filters,q=f.q.trim().toLowerCase();
+    state.units=consolidateSuits(state.all);
+    state.filtered=state.units.filter(function(i){return matches(i,f,q);});
+    render();stats();
+  }
+
+  // ---- main-view render (frozen-header table, grouped by need-by month) ----
+  function unitPO(u){return u.isSuit?((u.poRefs&&u.poRefs[0])||''):(u.poRef||'');}
+  function sortVal(u,k){if(k==='po')return unitPO(u).toLowerCase();if(k==='name')return (u.parentName||'').toLowerCase();if(k==='cat')return (u.category||'').toLowerCase();if(k==='needby')return needByISO(u)||'9999-99-99';return '';}
+  function sortUnits(arr){
+    if(state.sort.key){var k=state.sort.key,d=state.sort.dir;return arr.slice().sort(function(a,b){var av=sortVal(a,k),bv=sortVal(b,k);return (av<bv?-1:av>bv?1:0)*d;});}
+    return arr.slice().sort(function(a,b){return ((a.bulkExf||'9999').localeCompare(b.bulkExf||'9999'))||(unitPO(a).localeCompare(unitPO(b)));});  // default order: bulkExf then PO
+  }
+  function getNotes(i){var out=[];if(i.substitute)out.push({cls:'amber',text:'Substitute sample'});if(i.needsConfirm&&i.needsConfirm!==true&&String(i.needsConfirm).toLowerCase()!=='true')out.push({cls:'amber',text:i.needsConfirm});var pn=(F(i).talNote)||'';if(pn)out.push({cls:'amber',text:'Product note: '+pn,date:noteDateOf(key(i),'talNote')});var sn=(F(i).shootNote)||'';if(sn)out.push({cls:'teal',text:'Shoot note: '+sn,date:noteDateOf(key(i),'shootNote')});return out;}
+  // PO group key for the main table. Suits sit under their primary/first real PO (unitPO); a lone suit with
+  // no real PO falls back to a "Suit" bar. Matches the Tal view's PO sub-grouping.
+  function poGroupKey(u){var p=unitPO(u);return (p&&!/^SUIT\|/.test(p))?p:'Suit';}
+  // PO header bar: PO number · item/piece count · "Photos by <need-by>". Earliest need-by in the group.
+  function poBarEl(po,grp){
+    var bar=document.createElement('div');bar.className='pobar';
+    var nItems=0,nPieces=0,hasSuit=false;
+    grp.forEach(function(u){if(u.isSuit){hasSuit=true;nPieces+=(u.pieces?u.pieces.length:0);}else{nItems++;}});
+    var cnt;
+    if(hasSuit&&!nItems&&grp.length===1){cnt='suit · '+nPieces+' piece'+(nPieces===1?'':'s');}
+    else{var total=nItems+(hasSuit?1:0);cnt=total+' item'+(total===1?'':'s');}
+    var nb=grp.map(function(u){return needByISO(u);}).filter(Boolean).sort()[0]||'';
+    bar.innerHTML='<span class="num">'+esc(po)+'</span><span class="cnt">'+esc(cnt)+'</span><span class="sp"></span><span class="nb">Photos by '+(esc(fmtShort(nb))||'—')+'</span>';
+    return bar;
+  }
+  function render(){
+    var root=$('#view');root.innerHTML='';updateHeaderUI();
+    if(!state.filtered.length){root.innerHTML='<div class="state">Nothing matches.</div>';return;}
+    var months={};
+    state.filtered.forEach(function(i){var nb=needByISO(i),mk=nb?nb.slice(0,7):'9999-99',lab=nb?(MONTHS[+nb.slice(5,7)-1]+' '+nb.slice(0,4)):'Date TBD';if(!months[mk])months[mk]={label:lab,items:[]};months[mk].items.push(i);});
+    Object.keys(months).sort().forEach(function(mk){
+      var mb=months[mk],block=document.createElement('div');block.className='month';
+      block.innerHTML='<div class="month-title">Photos needed — '+esc(mb.label)+'</div>';
+      // within a month, sub-group the (already sorted) units by PO — one rounded card per PO
+      var groups={},order=[];
+      sortUnits(mb.items).forEach(function(u){var pk=poGroupKey(u);if(!groups[pk]){groups[pk]=[];order.push(pk);}groups[pk].push(u);});
+      order.forEach(function(po){
+        var grp=groups[po];
+        var card=document.createElement('div');card.className='ptable';
+        card.appendChild(poBarEl(po,grp));
+        grp.forEach(function(u){
+          if(u.isSuit){var appr=talApproved(u);card.appendChild(suitSummaryRow(u,appr));u.pieces.forEach(function(p){card.appendChild(rowEl(p,true,appr));});}
+          else{card.appendChild(rowEl(u,false));}
+        });
+        block.appendChild(card);
+      });
+      root.appendChild(block);
+    });
+  }
+  function stop(el){el.addEventListener('click',function(e){e.stopPropagation();});}
+  function pillEl(cls,label){var s=document.createElement('span');s.className='pill p-'+cls;s.textContent=label;return s;}
+  // Summary status pill for a non-suit unit (or a suit as a whole).
+  function statusInfo(i){
+    if(isReady(i))return {cls:'ready',label:'Ready'};
+    if(talApproved(i)){return {cls:'wait',label:'In transit'};}
+    if(sampleOn(i))return {cls:'needs',label:'Needs approval'};
+    return {cls:'wait',label:'Not yet arrived'};
+  }
+  // Trim a long multi-clause status ("reviewed 6/10; bulk landed 6/29, stocked 7/2") down to the single
+  // most relevant clause for the compact cell. Full verbose text still lives in the click-to-expand detail.
+  function shortStatus(display,landed){
+    if(!display)return '';
+    var parts=String(display).split(/\s*;\s*/).map(function(s){return s.trim();}).filter(Boolean);
+    if(parts.length<=1)return display;
+    var rx=landed?/land|stock|arriv|receiv|on hand|deliver/i:/eta|transit|ship|expect|arriv|deliver|en route/i;
+    for(var i=parts.length-1;i>=0;i--){if(rx.test(parts[i]))return parts[i];}
+    return parts[parts.length-1];
+  }
+  // One compact PPS/TOPS mini-row: fixed-width label · size chip · trimmed status/date (· optional neutral tag).
+  // Collapsed cell shows ONLY the size (+ any Sub/Check tag). The green status/date detail lives in the row dropdown (buildDetail).
+  function sizeField(label,sz,landed,display,tag){
+    var d=document.createElement('div');d.className='size-field';
+    var main='<div class="pt-main">';
+    main+= sz?('<span class="pt-size">'+esc(sz)+(tag?('<span class="pt-tag">'+esc(tag)+'</span>'):'')+'</span>'):'<span class="pt-size none">&mdash;</span>';
+    main+='</div>';
+    d.innerHTML='<span class="pt-lab">'+label+'</span>'+main;return d;
+  }
+  function saveShootNote(i){var cur=(F(i).shootNote)||'';var v=window.prompt('Shoot note for the photo crew — '+(i.parentName||''),cur);if(v===null)return;var k=key(i);state.flags[k]=Object.assign({},state.flags[k],{shootNote:v});talPending[k]=Object.assign({},talPending[k],{shootNote:v});saveLocal();stampNote(k,'shootNote',!!v);postSave({poRef:i.poRef||'',parentName:i.parentName,shootNote:v});applyFilters();}
+  function shootNoteBtn(i){var b=document.createElement('button');b.type='button';b.className='linkbtn';b.textContent=((F(i).shootNote)?'Edit shoot note':'Add shoot note');b.addEventListener('click',function(e){e.stopPropagation();saveShootNote(i);});return b;}
+  // Expand area: extra detail (full ETAs, tracking, notes, approve-in-transit status) — sizes & ETAs already show in the collapsed row.
+  // Expand area: two labelled sections — Samples (ETAs / landed / tracking / size-notes) then Notes
+  // (Product note, Shoot note, Add-shoot-note action). Same data + handlers as before.
+  function buildDetail(i,inSuit,suitApproved){
+    var d=document.createElement('div');d.className='rdetail';
+    // ---- Samples ----
+    var samp=[];
+    if(!inSuit&&!isReady(i)&&talApproved(i)){var via=shootWithOf(i);if(via==='per piece')via='';var tgt=via||'TOPS';var det=i.topsDisplay?esc(i.topsDisplay):('awaiting '+esc(tgt));samp.push('<div class="dline"><span class="dlab">Status</span><span class="dval amber">Approved — shooting with '+esc(tgt)+' · '+det+'</span></div>');}
+    if(inSuit&&suitApproved){var v=topsLanded(i)?'TOPS':(ppsLanded(i)?'PPS':'');samp.push('<div class="dline"><span class="dlab">Approval</span><span class="dval green">Ready to shoot'+(v?(' · via '+esc(v)):'')+'</span></div>');}
+    if(i.ppsDisplay)samp.push('<div class="dline"><span class="dlab">PPS ETA / landed</span><span class="dval'+((ppsLanded(i)&&!i.substitute)?' green':'')+'">'+esc(i.ppsDisplay)+'</span></div>');
+    if(i.topsDisplay)samp.push('<div class="dline"><span class="dlab">TOPS ETA / landed</span><span class="dval'+(topsLanded(i)?' green':'')+'">'+esc(i.topsDisplay)+'</span></div>');
+    if(i.topsTracking)samp.push('<div class="dline"><span class="dlab">Tracking</span><span class="dval">'+esc(i.topsTracking)+'</span></div>');
+    if(i.needsConfirm)samp.push('<div class="dline"><span class="dlab">Confirm</span><span class="dval amber">'+esc((i.needsConfirm===true||String(i.needsConfirm).toLowerCase()==='true')?'Check sizes / info':i.needsConfirm)+'</span></div>');
+    // size-notes (#2): the FULL original size string, shown only when it differs from the cleaned column value
+    var rawP=(F(i).manualPpsSize)||i.ppsSize||'';if(rawP&&rawP!==cleanSize(rawP))samp.push('<div class="dline"><span class="dlab">PPS sizes</span><span class="dval">'+esc(rawP)+'</span></div>');
+    var rawT=(F(i).manualTopsSize)||i.topsSize||'';if(rawT&&rawT!==cleanSize(rawT))samp.push('<div class="dline"><span class="dlab">TOPS sizes</span><span class="dval">'+esc(rawT)+'</span></div>');
+    var html='<div class="dsec"><div class="dsec-h">Samples</div>'+(samp.length?samp.join(''):'<div class="dline"><span class="dval" style="color:var(--muted)">No sample detail yet.</span></div>')+'</div>';
+    // ---- Notes ----
+    var notes=[];
+    var pn=(F(i).talNote)||'';if(pn){var pd=noteDateOf(key(i),'talNote');notes.push('<div class="dline"><span class="dlab">Product note</span><span class="dval amber">'+esc(pn)+(pd?' <span class="note-date">· added '+esc(pd)+'</span>':'')+'</span></div>');}
+    var sn=(F(i).shootNote)||'';if(sn){var sd=noteDateOf(key(i),'shootNote');notes.push('<div class="dline"><span class="dlab">Shoot note</span><span class="dval teal">'+esc(sn)+(sd?' <span class="note-date">· added '+esc(sd)+'</span>':'')+'</span></div>');}
+    html+='<div class="dsec"><div class="dsec-h">Notes</div>'+(notes.length?notes.join(''):'<div class="dline"><span class="dval" style="color:var(--muted)">No notes yet.</span></div>')+'</div>';
+    d.innerHTML=html;
+    // Add-shoot-note action lives in the Notes section (non-suit rows + suit summary)
+    if(!inSuit){var secs=d.querySelectorAll('.dsec');secs[secs.length-1].appendChild(shootNoteBtn(i));}
+    return d;
+  }
+  function rowEl(i,inSuit,suitApproved){
+    var row=document.createElement('div');row.className='row'+(inSuit?' rsub':'');
+    var main=document.createElement('div');main.className='trow';
+    var info=inSuit?null:statusInfo(i);
+    // Item name (+ category secondary line, status dot, notes)
+    var it=document.createElement('div');it.className='c-item';
+    var html='<div class="nm"><span class="chev">›</span>'+(inSuit?'':('<span class="dot d-'+info.cls+'"></span>'))+'<span class="rtitle">'+esc(i.parentName||'')+'</span></div>';
+    getNotes(i).forEach(function(n){html+='<div class="rnote '+n.cls+'">'+esc(n.text)+(n.date?' <span class="note-date">· added '+esc(n.date)+'</span>':'')+'</div>';});
+    it.innerHTML=html;main.appendChild(it);
+    // Category
+    var cat=document.createElement('div');cat.className='c-cat';cat.textContent=i.category||'—';main.appendChild(cat);
+    // Need by
+    var nb=document.createElement('div');nb.className='c-needby';nb.textContent=fmtShort(needByISO(i))||'—';main.appendChild(nb);
+    // PPS / TOPS updates — column shows CLEAN sizes only (#2); narrative lives in the expand.
+    var upd=document.createElement('div');upd.className='c-upd';
+    if(ppsRetired(i)){                                    // PPS retires once TOPS is confirmed (#6)
+      var pr=document.createElement('div');pr.className='size-field';
+      pr.innerHTML='<span class="pt-lab">PPS</span><div class="pt-main"><span class="pt-status">sizing approved</span></div>';
+      upd.appendChild(pr);
+    }else{
+      upd.appendChild(sizeField('PPS',cleanSize((F(i).manualPpsSize)||i.ppsSize||(ppsLanded(i)?'one size':'')),ppsLanded(i)&&!i.substitute,i.ppsDisplay||'',i.substitute?'Sub':''));
+    }
+    upd.appendChild(sizeField('TOPS',cleanSize((F(i).manualTopsSize)||i.topsSize||(topsLanded(i)?'one size':'')),topsLanded(i),i.topsDisplay||'',i.needsConfirm?'Check':''));
+    main.appendChild(upd);
+    // Status
+    var st=document.createElement('div');st.className='c-status';
+    if(inSuit){var on=sampleOn(i);st.appendChild(pillEl(on?'ready':'wait',on?'On hand':'Not arrived'));}
+    else{st.appendChild(pillEl(info.cls,info.label));}
+    main.appendChild(st);
+    // Shot / Not Shot
+    var sh=document.createElement('div');sh.className='c-shot';
+    if(inSuit){sh.innerHTML='<span class="none">&mdash;</span>';}
+    else{var sel=shotSelect(i);stop(sel);sh.appendChild(sel);}
+    main.appendChild(sh);
+    row.appendChild(main);
+    row.appendChild(buildDetail(i,inSuit,suitApproved));
+    main.addEventListener('click',function(){row.classList.toggle('open');});
+    return row;
+  }
+  function shotSelect(i){var sel=document.createElement('select');sel.className='shot';['Not Shot','Shot'].forEach(function(o){var op=document.createElement('option');op.value=o;op.textContent=o;sel.appendChild(op);});var cur=shotOf(i);sel.value=cur;if(cur==='Shot')sel.classList.add('is-shot');sel.addEventListener('change',function(){sel.classList.toggle('is-shot',sel.value==='Shot');saveShot(i,sel.value);});return sel;}
+  // Suit summary row: consolidated suit unit — status pill + shot control for the whole suit; its pieces render as indented rows beneath.
+  function suitSummaryRow(suit,suitApproved){
+    var row=document.createElement('div');row.className='row rsuit';
+    var main=document.createElement('div');main.className='trow';
+    var info=statusInfo(suit);
+    var it=document.createElement('div');it.className='c-item';
+    var html='<div class="nm"><span class="chev">›</span><span class="dot d-'+info.cls+'"></span><span class="rtitle">'+esc(suit.parentName||'')+'</span></div>';
+    html+='<div class="rcat">'+esc((suit.pieces?suit.pieces.length:0)+'-piece suit · POs '+suit.poRefs.join(', '))+'</div>';
+    getNotes(suit).forEach(function(n){html+='<div class="rnote '+n.cls+'">'+esc(n.text)+(n.date?' <span class="note-date">· added '+esc(n.date)+'</span>':'')+'</div>';});
+    it.innerHTML=html;main.appendChild(it);
+    var cat=document.createElement('div');cat.className='c-cat';cat.textContent=suit.category||'—';main.appendChild(cat);
+    var nb=document.createElement('div');nb.className='c-needby';nb.textContent=fmtShort(needByISO(suit))||'—';main.appendChild(nb);
+    var upd=document.createElement('div');upd.className='c-upd';upd.innerHTML='<div class="size-field"><span class="pt-lab">Suit</span> <span class="pt-status">see pieces below</span></div>';main.appendChild(upd);
+    var st=document.createElement('div');st.className='c-status';st.appendChild(pillEl(info.cls,info.label));main.appendChild(st);
+    var sh=document.createElement('div');sh.className='c-shot';var sel=shotSelect(suit);stop(sel);sh.appendChild(sel);main.appendChild(sh);
+    row.appendChild(main);
+    row.appendChild(buildDetail(suit,false,suitApproved));
+    main.addEventListener('click',function(){row.classList.toggle('open');});
+    return row;
+  }
+
+  function stats(){
+    var f=state.filters,q=f.q.trim().toLowerCase();
+    var scope=state.units.filter(function(i){if(f.shot==='active'){if(f.ready==='ready'&&!isReady(i))return false;if(f.ready==='needs'&&!(sampleOn(i)&&!talApproved(i)))return false;if(f.ready==='notarrived'&&sampleOn(i))return false;}if(q){var hay=(i.isSuit?(i.parentName+' '+i.poRefs.join(' ')):((i.parentName||'')+' '+(i.category||'')+' '+(i.poRef||'')+' '+(i.ppsSize||'')+' '+(i.topsSize||''))).toLowerCase();if(!qHit(hay,q))return false;}if(!sizeFilterHit(i))return false;return true;});
+    var notShot=scope.filter(function(i){return shotOf(i)!=='Shot';});
+    $('#s-toshoot').textContent=notShot.length;
+    $('#s-ready').textContent=notShot.filter(isReady).length;
+    $('#count').textContent=state.filtered.length+' shown';
+  }
+
+  // ---- re-shoot queue ----
+  function exportRow(i){var f=state.flags[key(i)]||{};var sw=f.talRecSize||shootWithOf(i);if(i.isSuit&&(sw==='per piece'||!sw))sw=(i.pieces&&i.pieces.some(function(p){return topsLanded(p);}))?'TOPS':'PPS';var setStr=','+(f.talRecSize||'').replace(/\s/g,'')+',';var has=function(s){return setStr.indexOf(','+s+',')!==-1;};var sizes;
+    if(i.isSuit){sizes=i.pieces.map(function(p){var pf=state.flags[key(p)]||{};var psz=(topsLanded(p)?(pf.manualTopsSize||p.topsSize):(pf.manualPpsSize||p.ppsSize))||p.ppsSize||p.topsSize||'?';return (role(p.category)||'')+' '+psz;}).join('; ');}
+    else if(has('TOPS')){sizes=f.manualTopsSize||i.topsSize||i.ppsSize||'';}
+    else if(has('PPS')){sizes=f.manualPpsSize||i.ppsSize||i.topsSize||'';}
+    else{sizes=(sw==='PPS')?(f.manualPpsSize||i.ppsSize||''):(f.manualTopsSize||i.topsSize||i.ppsSize||'');}
+    return {lands:i.bulkEta||'',exf:i.bulkExf||'',po:i.isSuit?i.poRefs.join(', '):(i.poRef||''),category:i.category||'',name:i.parentName||'',sizes:sizes,shootWith:sw,note:(f.talNote||''),key:key(i)};}
+  function inQueue(k){return state.reshoot.some(function(e){return e.key===k;});}
+  function postReshoot(entry){postSave({type:'reshoot',action:'upsert',entry:entry});}
+  function addToReshoot(entry){if(entry.key&&inQueue(entry.key)){renderQueue();return;}if(!entry.shootWith)entry.shootWith='PPS';state.reshoot.push(entry);saveLocal();postReshoot(entry);renderQueue();}
+  function removeFromReshoot(idx){var e=state.reshoot[idx];state.reshoot.splice(idx,1);saveLocal();if(e&&e.key)postSave({type:'reshoot',action:'remove',key:e.key});renderQueue();}
+  function saveReshootNote(idx){var e=state.reshoot[idx];if(!e)return;var cur=e.note||'';var v=window.prompt('Re-shoot note — '+(e.name||''),cur);if(v===null)return;e.note=v;saveLocal();postReshoot(state.reshoot[idx]);renderQueue();}
+  // Shared re-shoot queue: read everyone's queue from the server (JSONP), same as shot status.
+  function loadReshoot(){if(!CONFIG.saveEndpoint)return;var cb='__rs_'+Date.now()+'_'+Math.floor(Math.random()*1e6);window[cb]=function(list){try{if(Array.isArray(list)){state.reshoot=list.map(function(e){return {lands:e.lands||'',exf:e.exf||'',po:e.po||'',category:e.category||'',name:e.name||'',sizes:e.sizes||'',shootWith:e.shootWith||'PPS',shot:e.shot||'Not Shot',note:e.note||'',key:e.key||('cat|'+(e.name||'').toLowerCase())};});saveLocal();renderQueue();}}catch(e){}try{delete window[cb];}catch(e){}};var s=document.createElement('script');s.src=CONFIG.saveEndpoint+'?callback='+cb+'&what=reshoot&t='+Date.now();s.onerror=function(){try{delete window[cb];}catch(e){}};document.head.appendChild(s);}
+  // Re-shoot queue rendered like the main tracker card: Item Name (Category secondary) · Shoot with (dropdown) · Sizes · Shot/Not Shot · Reshoot.
+  function renderQueue(){
+    var q=$('#rs-queue');q.innerHTML='';
+    var view=state.filters.shot;function inView(e){var shot=(e.shot==='Shot');return view==='shot'?shot:(view==='active'?!shot:true);}var rq=(state.filters.q||'').trim().toLowerCase();function inQ(e){return !rq||qHit(((e.name||'')+' '+(e.po||'')+' '+(e.category||'')).toLowerCase(),rq);}var visible=state.reshoot.filter(function(e){return inView(e)&&inQ(e);});
+    if(!visible.length){q.innerHTML='<span style="font-size:12px;color:var(--muted)">'+(rq?'No re-shoots match your search.':'No re-shoots in this view.')+'</span>';return;}
+    var wrap=document.createElement('div');wrap.className='bucket'+(reshootOpen?'':' rs-collapsed');
+    var hd=document.createElement('div');hd.className='rs-toggle';hd.innerHTML='<span class="car">'+(reshootOpen?'▾':'▸')+'</span><span>Style for Reshoot ('+visible.length+')</span>';
+    hd.addEventListener('click',function(){reshootOpen=!reshootOpen;try{localStorage.setItem('shootTrackerReshootOpen',reshootOpen?'1':'0');}catch(e){}renderQueue();});
+    wrap.appendChild(hd);
+    var po=document.createElement('div');po.className='po rs-body';
+    var t=document.createElement('table');
+    t.innerHTML='<thead><tr><th>Item Name</th><th style="width:132px">Shoot with</th><th>Sizes</th><th style="width:120px">Shot / Not Shot</th><th style="width:124px">Reshoot</th></tr></thead><tbody></tbody>';
+    var tb=t.querySelector('tbody');
+    state.reshoot.forEach(function(e,idx){
+      if(!inView(e)||!inQ(e))return;                              // follow the Shot/Not Shot view tab AND the search box
+      if(!e.shootWith||['PPS','TOPS','Bulk'].indexOf(e.shootWith)===-1)e.shootWith='PPS';
+      var tr=document.createElement('tr');
+      // Item Name (+ Category as a small secondary line, + any note)
+      var n=document.createElement('td');
+      var nm=document.createElement('div');nm.className='rs-name';nm.textContent=e.name||'';n.appendChild(nm);
+      if(e.category){var sc=document.createElement('div');sc.className='rs-subcat';sc.textContent=e.category;n.appendChild(sc);}
+      if(e.note){var _rnd=document.createElement('div');_rnd.className='rs-note';_rnd.textContent='Note: '+e.note;n.appendChild(_rnd);}
+      tr.appendChild(n);
+      // Shoot with — single dropdown (PPS / TOPS / Bulk) wired to e.shootWith exactly as the old radios were
+      var swc=document.createElement('td');var swsel=document.createElement('select');swsel.className='tal-select';
+      ['PPS','TOPS','Bulk'].forEach(function(opt){var op=document.createElement('option');op.value=opt;op.textContent=opt;swsel.appendChild(op);});
+      swsel.value=e.shootWith;swsel.addEventListener('change',function(){e.shootWith=swsel.value;saveLocal();postReshoot(e);});
+      swc.appendChild(swsel);tr.appendChild(swc);
+      // sizes as add/remove chips (auto-populated from the catalog, same edit style as Tal approval)
+      var sz=document.createElement('td');sz.className='rs-sizecell';var arr=(e.sizes||'').split(',').map(function(s){return s.trim();}).filter(Boolean);
+      var sm=document.createElement('div');sm.className='tal-smpl tal-editing';var pg=document.createElement('div');pg.className='tal-pg';var chips=document.createElement('div');chips.className='tal-chips';
+      arr.forEach(function(v,si){var ch=document.createElement('span');ch.className='tal-chip';ch.appendChild(document.createTextNode(v));var x=document.createElement('span');x.className='x';x.title='remove';x.textContent='×';x.addEventListener('click',function(){arr.splice(si,1);e.sizes=arr.join(', ');saveLocal();postReshoot(e);renderQueue();});ch.appendChild(x);chips.appendChild(ch);});
+      var addc=document.createElement('span');addc.className='tal-addchip';addc.textContent='+';addc.title='add size';addc.addEventListener('click',function(){var v=window.prompt('Add a size:','');if(v){v=v.trim();if(v&&arr.indexOf(v)===-1){arr.push(v);e.sizes=arr.join(', ');saveLocal();postReshoot(e);renderQueue();}}});
+      chips.appendChild(addc);pg.appendChild(chips);sm.appendChild(pg);sz.appendChild(sm);tr.appendChild(sz);
+      if(!e.shot)e.shot='Not Shot';var stc=document.createElement('td');stc.className='c-shot';var ssel=document.createElement('select');ssel.className='shot';['Not Shot','Shot'].forEach(function(o){var op=document.createElement('option');op.value=o;op.textContent=o;ssel.appendChild(op);});ssel.value=e.shot;if(e.shot==='Shot')ssel.classList.add('is-shot');ssel.addEventListener('change',function(){e.shot=ssel.value;saveLocal();postReshoot(e);renderQueue();});stc.appendChild(ssel);tr.appendChild(stc);
+      var rc=document.createElement('td');rc.className='c-shot';var nbtn=document.createElement('button');nbtn.type='button';nbtn.className='rs-notebtn';nbtn.textContent=(e.note?'✎ Note':'＋ Note');nbtn.addEventListener('click',function(){saveReshootNote(idx);});rc.appendChild(nbtn);var btn=document.createElement('button');btn.type='button';btn.className='rs-remove';btn.textContent='✕ Remove';btn.addEventListener('click',function(){removeFromReshoot(idx);});rc.appendChild(btn);tr.appendChild(rc);
+      tb.appendChild(tr);
+    });
+    po.appendChild(t);wrap.appendChild(po);q.appendChild(wrap);
+  }
+
+  // Re-shoot search source = consolidated suits (always, so suits stay findable) PLUS the NewLaunchJSON
+  // search pool (restocked <=30 days OR incoming PO On Order). Falls back to the whole feed if the pool
+  // hasn't loaded / failed. bulkLanded is kept but no longer gates the source (30-day-restock rule replaces it).
+  function bulkLanded(i){return !!(i&&(i.isSuit?(i.pieces&&i.pieces.length&&i.pieces.every(function(p){return !!p.received||!!p.landedDate;})):(i.received||i.landedDate)));}
+  // Products still active (NOT yet shot) in the main tracker — these are already being handled in the main
+  // list, so they should NOT be offered as re-shoot ADD candidates. Keyed by lowercased parentName.
+  function activeMainNames(){var m={};state.units.forEach(function(u){if(shotOf(u)!=='Shot'){var nm=(u.parentName||'').toLowerCase();if(nm)m[nm]=true;}});return m;}
+  function reshootSource(){
+    var seen={},out=[];var blocked=activeMainNames();
+    state.reshoot.forEach(function(e){var nm=(e.name||'').toLowerCase();if(nm)blocked[nm]=true;});   // already in the re-shoot queue -> don't offer it again
+    function push(o){var kk=(o.name||'').toLowerCase();if(!kk||seen[kk])return;seen[kk]=true;out.push(o);}
+    state.units.filter(function(u){return u.isSuit;}).forEach(function(u){push({name:u.parentName,po:u.poRefs.join(', ')||'',category:u.category||'',unit:u});});
+    if(state.searchPool&&state.searchPool.length){
+      state.searchPool.forEach(function(p){push({name:p.name,po:p.po,category:p.category,unit:(state.units.find(function(x){return !x.isSuit&&(x.parentName||'').toLowerCase()===p.name.toLowerCase();})||null)});});
+    }else{
+      state.units.forEach(function(u){push({name:u.parentName,po:(u.isSuit?u.poRefs.join(', '):u.poRef)||'',category:u.category||'',unit:u});});
+    }
+    // Exclude candidates that match a main-list item still being worked (not yet shot). Keep already-Shot
+    // items (legit re-shoots) and items not in the main list at all (already-launched / restock pool).
+    return out.filter(function(o){return !blocked[(o.name||'').toLowerCase()];});
+  }
+  function catalogSearch(q){q=q.toLowerCase();return reshootSource().filter(function(c){var hay=((c.name||'')+' '+(c.po||'')+' '+(c.category||'')).toLowerCase();return qHit(hay,q);}).slice(0,15);}
+  function entryFor(c){return c.unit?exportRow(c.unit):{lands:'',exf:'',po:c.po||'',category:c.category||'(re-shoot)',name:c.name,sizes:c.sizes||'',shootWith:'',note:'',key:'cat|'+(c.name||'').toLowerCase()};}
+  function customEntry(q){return {lands:'',exf:'',po:'',category:'(custom)',name:q,sizes:'',shootWith:'',note:'',key:'custom|'+q.toLowerCase()};}
+  // Live autocomplete: as you type, suggest catalog matches (incl. products not in the current list); click one to queue a re-shoot. Last row always lets you add a custom item.
+  function suggest(){
+    var q=(($('#search').value)||'').trim();var box=$('#rs-matches');
+    if(q.length<2){box.style.display='none';box.innerHTML='';return;}
+    var hits=catalogSearch(q);box.innerHTML='';
+    hits.forEach(function(c){var d=document.createElement('div');d.textContent=c.name+'  ·  '+(c.po||'—')+'  ·  '+(c.category||'')+(c.unit?'':'  · not in current list — add re-shoot');d.title='Add to re-shoot';d.addEventListener('click',function(){addToReshoot(entryFor(c));box.style.display='none';box.innerHTML='';});box.appendChild(d);});
+    var add=document.createElement('div');add.style.color='var(--muted)';add.textContent='+ Add “'+q+'” as a custom re-shoot';add.addEventListener('click',function(){addToReshoot(customEntry(q));box.style.display='none';box.innerHTML='';});box.appendChild(add);
+    box.style.display='block';
+  }
+
+  // ---- excel export ----
+  function tableToXls(cols,rows){
+    var thead='<tr>'+cols.map(function(c){return '<th style="background:#eee;border:1px solid #999;padding:5px 8px;text-align:left">'+esc(c)+'</th>';}).join('')+'</tr>';
+    var body=rows.map(function(r){return '<tr>'+r.map(function(c){return '<td style="border:1px solid #ccc;padding:5px 8px">'+esc(c)+'</td>';}).join('')+'</tr>';}).join('');
+    var sheetXml='<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Ready to Shoot</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->';
+    var full='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8">'+sheetXml+'</head><body><table border="1">'+thead+body+'</table></body></html>';
+    var blob=new Blob(['﻿'+full],{type:'application/vnd.ms-excel'});var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download='Shoot_List_Ready_'+new Date().toISOString().slice(0,10)+'.xls';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(url);a.remove();},1500);
+  }
+  function exportExcel(){
+    var seen={};var out=[];var szf=state.filters.size||[];
+    state.units.forEach(function(i){if(isReady(i)&&shotOf(i)!=='Shot'&&sizeFilterHit(i)){var r=exportRow(i);seen[r.key]=true;out.push(r);}});
+    state.reshoot.forEach(function(e){if(e.shot==='Shot')return;if(e.key&&seen[e.key])return;
+      if(szf.length){var toks=sizeTokensFrom(e.sizes||'');if(!toks.length)return;if(!szf.some(function(x){return toks.indexOf(x)!==-1;}))return;}  // when the size filter is active, only include re-shoots whose sizes match (entries with no listed sizes are excluded)
+      out.push(Object.assign({},e,{lands:'Reshoot'}));});
+    out.sort(function(a,b){return (a.exf||'9999').localeCompare(b.exf||'9999')||(a.po||'').localeCompare(b.po||'');});
+    var cols=['Lands','EXF','PO','Category','Item Name','Sizes','Shoot With','Note'];
+    var rows=out.map(function(r){return [r.lands,r.exf,r.po,r.category,r.name,r.sizes,r.shootWith,(r.note||'')];});
+    if(!rows.length)rows=[['(nothing ready or queued)','','','','','','','']];
+    tableToXls(cols,rows);
+  }
+
+  // ===== Tal Product Approval (embedded overlay) =====
+  // One Approve per item. It approves the PRIMARY sample: TOPS if a TOPS is on hand, else PPS (suits use the same PPS/TOPS choice). On Hand shows a sample-type badge per line.
+  var talTimers={};var talQuery='';var talTab='need';   // 'need' = To Approve, 'hold' = On Hold, 'ready' = Ready to Shoot
+  function talFlag(r){return state.flags[r.poRef+'|'+r.name]||{};}
+  function talSet(r,status){var sw=(status==='Approved'?(r.sw||''):'');var k=r.poRef+'|'+r.name;state.flags[k]=Object.assign({},state.flags[k],{talStatus:status,talRecSize:sw});talPending[k]=Object.assign({},talPending[k],{talStatus:status,talRecSize:sw});saveLocal();postSave({poRef:r.poRef,parentName:r.name,talStatus:status,talRecSize:sw});}
+  function talSetField(r,field,val){var k=r.poRef+'|'+r.name;var p={};p[field]=val;state.flags[k]=Object.assign({},state.flags[k],p);talPending[k]=Object.assign({},talPending[k],p);saveLocal();if(field==='talNote'||field==='shootNote')stampNote(k,field,!!val);var b={poRef:r.poRef,parentName:r.name};b[field]=val;postSave(b);}
+  // ---- Hold (place / approve-from-hold / return / remove) ----
+  var TAL_HOLD_DAYS=7, TAL_DAY_MS=864e5;
+  var TAL_HOLD_REASONS=['Dialing in sizing / sample for fit, not shoot','Fit not approved / styling approved','Try-on review needed','Other'];
+  var talHeldBy=(function(){try{return (window.localStorage&&localStorage.getItem('shootTrackerUser'))||'';}catch(e){return '';}})();
+  // Write Hold + hold fields through the same postSave/talPending path as talSet.
+  function talHold(r,reason,note){var k=r.poRef+'|'+r.name;var heldAt=Date.now();var returnsAt=heldAt+TAL_HOLD_DAYS*TAL_DAY_MS;
+    var fields={talStatus:'Hold',talRecSize:'',holdReason:reason,holdNote:note||'',heldAt:String(heldAt),heldBy:talHeldBy,returnsAt:String(returnsAt)};
+    state.flags[k]=Object.assign({},state.flags[k],fields);talPending[k]=Object.assign({},talPending[k],fields);saveLocal();
+    postSave({poRef:r.poRef,parentName:r.name,talStatus:'Hold',holdReason:reason,holdNote:note||'',heldAt:String(heldAt),heldBy:talHeldBy,returnsAt:String(returnsAt)});}
+  // Clear hold fields and set a new status (Approved on approve, Pending on return/remove).
+  function talClearHold(r,status){var k=r.poRef+'|'+r.name;var sw=(status==='Approved'?(r.sw||''):'');
+    var fields={talStatus:status,talRecSize:sw,holdReason:'',holdNote:'',heldAt:'',heldBy:'',returnsAt:''};
+    state.flags[k]=Object.assign({},state.flags[k],fields);talPending[k]=Object.assign({},talPending[k],fields);saveLocal();
+    postSave({poRef:r.poRef,parentName:r.name,talStatus:status,talRecSize:sw,holdReason:'',holdNote:'',heldAt:'',heldBy:'',returnsAt:''});}
+  function talIsHeld(r){return talFlag(r).talStatus==='Hold';}
+  // Client-side auto-return: true once 7 days passed since heldAt OR feed activity is newer than heldAt.
+  function talHeldAtMs(r){var v=talFlag(r).heldAt;var t=v?parseInt(v,10):0;return isNaN(t)?0:t;}
+  function talUpdateReceived(r){var heldAt=talHeldAtMs(r);if(!heldAt)return false;var la=r.lastActivityAt||0;return la>heldAt;}
+  function talAutoReturned(r){var heldAt=talHeldAtMs(r);if(!heldAt)return false;return (Date.now()>=heldAt+TAL_HOLD_DAYS*TAL_DAY_MS)||talUpdateReceived(r);}
+  function talDaysLeft(r){var heldAt=talHeldAtMs(r);if(!heldAt)return 0;return Math.max(0,Math.ceil((heldAt+TAL_HOLD_DAYS*TAL_DAY_MS-Date.now())/TAL_DAY_MS));}
+  function talCss(k){return k.replace(/[^a-zA-Z0-9]/g,'_');}
+  // Latest feed activity timestamp for a unit (ms). Used only for the Hold auto-return trigger.
+  // Degrades gracefully: missing fields just return 0 (so only the 7-day timer applies).
+  function lastActivityMs(u){var best=0;function take(v){if(!v)return;var t=new Date(v).getTime();if(!isNaN(t)&&t>best)best=t;}
+    if(u.isSuit&&u.pieces){u.pieces.forEach(function(p){take(p.lastActivityAt);take(p.ppsDate);take(p.topsDate);});}
+    else{take(u.lastActivityAt);take(u.ppsDate);take(u.topsDate);}return best;}
+  function talRows(){var rows=[];state.units.forEach(function(u){
+    if(shotOf(u)==='Shot')return;                                 // already shot -> nothing to approve
+    if(u.isSuit){var pcs=u.pieces.filter(function(p){return ppsLanded(p)||topsLanded(p);});if(!pcs.length)return;var lab=function(p){return ({blazer:'Blazer',short:'Short blazer',pant:'Pant'})[role(p.category)]||'Piece';};
+      rows.push({isSuit:true,key:key(u),poRef:u.poRef,poGroup:u.poRefs.join(', '),name:u.parentName,category:u.category,complete:pcs.length===u.pieces.length,sw:(u.pieces.some(function(p){return topsLanded(p);})?'TOPS':'PPS'),lastActivityAt:lastActivityMs(u),needBy:needByISO(u),
+        ppsLines:u.pieces.filter(function(p){return ppsLanded(p);}).map(function(p){return {label:lab(p),poRef:p.poRef,parentName:p.parentName,sizes:p.ppsSize||''};}),
+        topsLines:u.pieces.filter(function(p){return topsLanded(p);}).map(function(p){return {label:lab(p),poRef:p.poRef,parentName:p.parentName,sizes:p.topsSize||''};})});
+    }else{if(!ppsLanded(u)&&!topsLanded(u))return;var top=(topsShipped(u)||topsLanded(u)||!!u.substitute);
+      rows.push({isSuit:false,key:key(u),poRef:u.poRef,poGroup:u.poRef||'',name:u.parentName,category:u.category,complete:true,sw:(top?'TOPS':'PPS'),hasTops:(topsShipped(u)||topsLanded(u)),hasPps:ppsLanded(u),topsInTransit:(!topsLanded(u)&&topsShipped(u)),topsStatus:(u.topsDisplay||''),topsSizePreview:(u.topsSize||''),lastActivityAt:lastActivityMs(u),needBy:needByISO(u),
+        pps:ppsLanded(u)?{sizes:u.ppsSize||''}:null,tops:topsLanded(u)?{sizes:u.topsSize||''}:null});}
+  });return rows;}
+  var talEditing={};
+  function sizesArr(poRef,parentName,field,fallback){var v=(state.flags[poRef+'|'+parentName]||{})[field];if(v===undefined||v===null||v==='')v=fallback||'';return String(v).split(',').map(function(s){return s.trim();}).filter(Boolean);}
+  function colGroups(r,which){var field=which==='tops'?'manualTopsSize':'manualPpsSize';
+    if(r.isSuit){var lines=which==='tops'?r.topsLines:r.ppsLines;return lines.map(function(o){return {label:o.label,poRef:o.poRef,parentName:o.parentName,field:field,sizes:sizesArr(o.poRef,o.parentName,field,o.sizes)};});}
+    var c=which==='tops'?r.tops:r.pps;if(!c)return [];return [{label:'',poRef:r.poRef,parentName:r.name,field:field,sizes:sizesArr(r.poRef,r.name,field,c.sizes)}];}
+  function saveGroup(g){var k=g.poRef+'|'+g.parentName;var p={};p[g.field]=g.sizes.join(', ');state.flags[k]=Object.assign({},state.flags[k],p);saveLocal();var b={poRef:g.poRef,parentName:g.parentName};b[g.field]=g.sizes.join(', ');postSave(b);}
+  function abbrevSize(s){var t=String(s==null?'':s).trim();var m={'small':'S','medium':'M','large':'L','x-small':'XS','xsmall':'XS','extra small':'XS','x-large':'XL','xlarge':'XL','extra large':'XL','xx-large':'2XL','2x-large':'2XL','xxl':'2XL','xxx-large':'3XL','3x-large':'3XL','3xl':'3XL'};return m[t.toLowerCase()]||t;}
+  // PPS retires once a TOPS is confirmed/on-hand (r.hasTops) — unless Tal has explicitly chosen to shoot PPS.
+  function talPpsRetired(r){if(r.isSuit)return false;if(r.sw==='PPS')return false;return !!r.hasTops;}
+  function buildCol(r,which){var wrap=document.createElement('div');wrap.className='tal-smpl'+(colEditing(r,which)?' tal-editing':'');
+    if(which==='pps'&&!colEditing(r,which)&&talPpsRetired(r)){wrap.innerHTML='<span class="tal-nosz" style="font-style:normal;color:var(--muted)">sizing approved</span>';return wrap;}
+    var gs=colGroups(r,which);
+    if(!gs.length){if(which==='tops'&&(r.topsInTransit||r.topsSizePreview)){var _b=r.topsInTransit?'<span style="color:var(--amber);font-weight:600">In transit</span>':'<span style="color:var(--muted);font-weight:600">Proposed</span>';wrap.innerHTML='<div style="font-size:12px;line-height:1.4;">'+(r.topsSizePreview?('<span style="color:var(--ink);font-weight:600">'+esc(r.topsSizePreview)+'</span><br>'):'')+_b+(r.topsStatus?(' <span style="color:var(--muted)">&mdash; '+esc(r.topsStatus)+'</span>'):'')+'</div>';return wrap;}wrap.innerHTML='<span class="none">&mdash;</span>';return wrap;}
+    var editing=colEditing(r,which);
+    gs.forEach(function(g){var pg=document.createElement('div');pg.className='tal-pg';
+      if(g.label){var l=document.createElement('span');l.className='tal-pglab';l.textContent=g.label;pg.appendChild(l);}
+      var chips=document.createElement('div');chips.className='tal-chips';
+      if(editing){
+        // edit mode: each size is its own removable chip + a ＋ add-chip (behavior unchanged)
+        g.sizes.forEach(function(sz,i){var c=document.createElement('span');c.className='tal-chip';c.appendChild(document.createTextNode(abbrevSize(sz)));var x=document.createElement('span');x.className='x';x.title='remove';x.textContent='×';x.addEventListener('click',function(){g.sizes.splice(i,1);saveGroup(g);renderCols(r);applyFilters();});c.appendChild(x);chips.appendChild(c);});
+        var add=document.createElement('span');add.className='tal-addchip';add.textContent='+';add.title='add size';add.addEventListener('click',function(){var v=window.prompt('Add a size for '+(g.label||which.toUpperCase())+':','');if(v){v=v.trim();if(v&&g.sizes.indexOf(v)===-1){g.sizes.push(v);saveGroup(g);renderCols(r);applyFilters();}}});
+        chips.appendChild(add);
+      }else{
+        // display mode: sizes as one clean comma-separated line (dark ink), keeping the size abbreviation
+        if(g.sizes.length){var line=document.createElement('span');line.className='tal-sizes';line.textContent=g.sizes.map(abbrevSize).join(', ');chips.appendChild(line);}
+        else{var ph=document.createElement('span');ph.className='tal-nosz';ph.textContent='on hand · no sizes listed';chips.appendChild(ph);}
+      }
+      pg.appendChild(chips);wrap.appendChild(pg);});
+    return wrap;}
+  function renderCols(r){var tr=document.getElementById('tr-'+talCss(r.key));if(!tr)return;var withPen=tr.classList.contains('tal-approve-row');var pc=tr.querySelector('td.tal-col-pps'),tc=tr.querySelector('td.tal-col-tops');if(pc){pc.innerHTML='';pc.appendChild(withPen?sizeCell(r,'pps'):buildCol(r,'pps'));}if(tc){tc.innerHTML='';tc.appendChild(withPen?sizeCell(r,'tops'):buildCol(r,'tops'));}var it=tr.querySelector('td.it');if(it)it.innerHTML=itHtml(r,withPen);}
+  function toggleEdit(r,btn){talEditing[r.key]=!talEditing[r.key];renderCols(r);if(btn){btn.classList.toggle('on',!!talEditing[r.key]);btn.textContent=talEditing[r.key]?'Done':'Edit sizes';}}
+  function rowEdited(r){if(r.isSuit){return r.ppsLines.concat(r.topsLines).some(function(o){var f=state.flags[o.poRef+'|'+o.parentName]||{};return f.manualPpsSize||f.manualTopsSize;});}var f=talFlag(r);return f.manualPpsSize||f.manualTopsSize;}
+  function itHtml(r,hideNotes){var f=talFlag(r);var s=esc(r.name);if(r.isSuit&&!r.complete)s+=' <span class="tal-partial">· partial</span>';if(rowEdited(r))s+=' <span class="tal-edited">(edited)</span>';
+    if(f.talStatus==='Hold'&&talUpdateReceived(r))s+=' <span class="tal-updmark"><span class="dot"></span>Update received</span>';
+    if(!hideNotes){                                              // To-Approve rows show notes in dedicated columns instead
+      if(f.talNote){var pnd=noteDateOf(r.poRef+'|'+r.name,'talNote');s+='<div class="tal-note">Product note: '+esc(f.talNote)+(pnd?' <span class="note-date">· added '+esc(pnd)+'</span>':'')+'</div>';}}
+    return s;}
+  // Single combined list: every on-hand row (pending + held). Approved rows leave after the 30s grace.
+  function talCounter(){var rows=talRows().filter(inList);var ap=rows.filter(function(r){return talFlag(r).talStatus==='Approved';}).length;var held=rows.filter(function(r){return talIsHeld(r)&&!talAutoReturned(r);}).length;$('#tal-counter').textContent=rows.length+' with sample on hand · '+(rows.length-ap)+' pending · '+held+' on hold · '+ap+' approved';talTabCounts();}
+  // Live counts on the three tab headers: To Approve = pending only, On Hold = held, Ready = approved.
+  function talTabCounts(){var rows=talRows().filter(inList);var ap=rows.filter(function(r){return talFlag(r).talStatus==='Approved';}).length;var held=rows.filter(function(r){return talIsHeld(r)&&!talAutoReturned(r);}).length;var need=rows.length-ap-held;var cn=document.getElementById('tal-cnt-need'),ch=document.getElementById('tal-cnt-hold'),cr=document.getElementById('tal-cnt-ready');if(cn)cn.textContent='('+need+')';if(ch)ch.textContent='('+held+')';if(cr)cr.textContent='('+ap+')';}
+  function setAct(tr,node){var act=tr.querySelector('td.tal-act');act.innerHTML='';act.appendChild(node);}
+  // Tidy monochrome "Shoot with" segmented control (PPS | TOPS). Only when both samples are on hand
+  // for a non-suit row. Wired to r.sw exactly as before (talSet reads r.sw on approve).
+  function swSeg(r){
+    if(r.isSuit||!r.hasTops||!r.hasPps)return null;
+    var row=document.createElement('div');row.className='tal-swrow';
+    var lb=document.createElement('span');lb.className='lb';lb.textContent='Shoot with';row.appendChild(lb);
+    var seg=document.createElement('div');seg.className='tal-swseg';
+    ['PPS','TOPS'].forEach(function(opt){var b=document.createElement('button');b.type='button';b.textContent=opt;if(r.sw===opt)b.classList.add('on');
+      b.addEventListener('click',function(){r.sw=opt;seg.querySelectorAll('button').forEach(function(x){x.classList.toggle('on',x.textContent===opt);});});
+      seg.appendChild(b);});
+    row.appendChild(seg);return row;
+  }
+  function noteLabel(has,txt){return (has?'✎ ':'＋ ')+txt;}   // ✎ when a note exists, ＋ to add
+  function actBox(r,tr){var wrap=document.createElement('div');
+    var box=document.createElement('div');box.className='tal-actbox';
+    var seg=swSeg(r);if(seg)box.appendChild(seg);
+    var ap=document.createElement('button');ap.className='tal-approve';ap.textContent='Approve';ap.addEventListener('click',function(){talApprove(r,tr);});
+    var hd=document.createElement('button');hd.className='tal-hold';hd.textContent='Hold';hd.addEventListener('click',function(){talOpenHold(r,tr);});
+    var bot=document.createElement('div');bot.className='tal-bottom';
+    var es=document.createElement('button');es.textContent=talEditing[r.key]?'Done':'Edit sizes';if(talEditing[r.key])es.classList.add('on');es.addEventListener('click',function(){toggleEdit(r,es);});
+    var an=document.createElement('button');an.textContent=noteLabel(!!talFlag(r).talNote,'Product note');an.addEventListener('click',function(){addNote(r,tr);});
+    bot.appendChild(es); bot.appendChild(an); box.appendChild(ap); box.appendChild(hd); box.appendChild(bot);
+    wrap.appendChild(box);wrap.appendChild(holdPickEl(r,tr));return wrap;}
+  // Inline reason picker shown under the action box when Hold is clicked.
+  function holdPickEl(r,tr,onCancel){var box=document.createElement('div');box.className='tal-holdpick';
+    var sel={reason:null};
+    var html='<div class="lbl">Reason for hold</div>';
+    html+='<div class="tal-reasons"></div>';
+    box.innerHTML=html;
+    function chips(arr){var c=box.querySelector('.tal-reasons');arr.forEach(function(rs){var b=document.createElement('button');b.className='tal-rchip';b.textContent=rs;b.addEventListener('click',function(){sel.reason=rs;box.querySelectorAll('.tal-rchip').forEach(function(x){x.classList.remove('sel');});b.classList.add('sel');inp.style.display=(rs==='Other')?'block':'none';if(rs!=='Other')inp.value='';});c.appendChild(b);});}
+    chips(TAL_HOLD_REASONS);
+    var inp=document.createElement('input');inp.type='text';inp.placeholder='Note (required for Other)';inp.style.display='none';box.appendChild(inp);
+    var acts=document.createElement('div');acts.className='acts';
+    var ok=document.createElement('button');ok.className='tal-confirmhold';ok.textContent='Place on hold';
+    var cancel=document.createElement('button');cancel.className='tal-cancelhold';cancel.textContent='Cancel';
+    acts.appendChild(ok);acts.appendChild(cancel);box.appendChild(acts);
+    ok.addEventListener('click',function(){var reason=sel.reason;var note=inp.value.trim();
+      if(!reason){inp.focus();box.querySelector('.lbl').textContent='Pick a reason for hold';return;}
+      if(reason==='Other'&&!note){inp.placeholder='A note is required for "Other"';inp.focus();return;}
+      talConfirmHold(r,reason,note,tr);});
+    cancel.addEventListener('click',function(){box.classList.remove('open');if(onCancel)onCancel();});
+    return box;}
+  function talOpenHold(r,tr){var pick=tr.querySelector('.tal-holdpick');if(pick)pick.classList.toggle('open');}
+  function approvedState(r,tr){var f=talFlag(r);
+    var s=document.createElement('span');s.className='tal-state ok';
+    var via=f.talRecSize||r.sw||'';
+    var lab=document.createElement('span');lab.innerHTML='✓ Ready to shoot'+(via?(' · via '+esc(via)):'');s.appendChild(lab);
+    // PPS | TOPS shoot-with toggle — lets Tal switch which sample the shoot uses even after approval (#7).
+    // Writes talRecSize via the same talSet/postSave path; updates the "via X" label + main-table render.
+    if(!r.isSuit){
+      var seg=document.createElement('span');seg.className='tal-swseg';seg.style.marginLeft='8px';seg.style.verticalAlign='middle';
+      ['PPS','TOPS'].forEach(function(opt){var b=document.createElement('button');b.type='button';b.textContent=opt;if(via===opt)b.classList.add('on');
+        b.addEventListener('click',function(e){e.stopPropagation();r.sw=opt;talSetField(r,'talRecSize',opt);seg.querySelectorAll('button').forEach(function(x){x.classList.toggle('on',x.textContent===opt);});lab.innerHTML='✓ Ready to shoot · via '+esc(opt);applyFilters();});
+        seg.appendChild(b);});
+      s.appendChild(seg);
+    }
+    var undo=document.createElement('span');undo.className='tal-undo';undo.style.marginLeft='8px';undo.textContent='Undo';undo.addEventListener('click',function(){talUndo(r,tr);});s.appendChild(undo);
+    setAct(tr,s);}
+  function talApprove(r,tr){var wasHeld=talIsHeld(r);if(talFlag(r).talStatus==='Approved')return;if(wasHeld){talClearHold(r,'Approved');}else{talSet(r,'Approved');}
+    if(talTab==='hold'){if(talTimers[r.key]){clearTimeout(talTimers[r.key]);delete talTimers[r.key];}talHeldRender();talCounter();applyFilters();return;}   // approving from On Hold tab: drop the row out of this view
+    tr=tr||document.getElementById('tr-'+talCss(r.key));if(tr){tr.classList.remove('heldrow');approvedState(r,tr);}talCounter();applyFilters();if(talTab==='need'){if(talTimers[r.key])clearTimeout(talTimers[r.key]);talTimers[r.key]=setTimeout(function(){talFade(r);},30000);}}
+  function talFade(r){delete talTimers[r.key];if(talTab!=='need')return;var tr=document.getElementById('tr-'+talCss(r.key));if(!tr)return;var box=tr.closest('.tal-po');tr.style.transition='opacity .5s';tr.style.opacity='0';setTimeout(function(){if(tr.parentNode)tr.parentNode.removeChild(tr);if(box&&!box.querySelector('tbody tr')&&box.parentNode)box.parentNode.removeChild(box);talCounter();},520);}
+  function talUndo(r,tr){if(talTimers[r.key]){clearTimeout(talTimers[r.key]);delete talTimers[r.key];}talSet(r,'Pending');
+    if(talTab==='ready'){tr=tr||document.getElementById('tr-'+talCss(r.key));var box=tr&&tr.closest('.tal-po');if(tr&&tr.parentNode)tr.parentNode.removeChild(tr);if(box&&!box.querySelector('tbody tr')&&box.parentNode)box.parentNode.removeChild(box);talReadyRender();talCounter();applyFilters();return;}
+    tr=tr||document.getElementById('tr-'+talCss(r.key));if(tr){tr.style.opacity='1';setAct(tr,pendingAct(r,tr));}talCounter();applyFilters();}
+  // Transient held state shown for the 30s undo window right after placing a hold.
+  function heldState(r,tr){var f=talFlag(r);var s=document.createElement('span');s.className='tal-state hd';
+    s.innerHTML='On hold'+(f.holdReason?' · '+esc(f.holdReason):'')+' <span class="tal-undo">Undo</span>';
+    s.querySelector('.tal-undo').addEventListener('click',function(){talUndoHold(r,tr);});setAct(tr,s);if(tr)tr.classList.add('heldrow');}
+  // Persistent inline held row: Approve (clears hold → Ready) + Return to approvals, reason stays visible.
+  function heldActBox(r,tr){var f=talFlag(r);var wrap=document.createElement('div');
+    var box=document.createElement('div');box.className='tal-actbox';
+    var seg=swSeg(r);if(seg)box.appendChild(seg);
+    var ap=document.createElement('button');ap.className='tal-approve';ap.textContent='Approve';ap.addEventListener('click',function(){talApprove(r,tr);});
+    var ret=document.createElement('button');ret.className='tal-hold';ret.textContent='Return to approvals';ret.addEventListener('click',function(){talReturnFromHold(r,tr);});
+    var bot=document.createElement('div');bot.className='tal-bottom';
+    var es=document.createElement('button');es.textContent=talEditing[r.key]?'Done':'Edit sizes';if(talEditing[r.key])es.classList.add('on');es.addEventListener('click',function(){toggleEdit(r,es);});
+    var an=document.createElement('button');an.textContent=noteLabel(!!talFlag(r).talNote,'Product note');an.addEventListener('click',function(){addNote(r,tr);});
+    bot.appendChild(es);bot.appendChild(an);box.appendChild(ap);box.appendChild(ret);box.appendChild(bot);
+    var rl=document.createElement('div');rl.className='reasonline';rl.style.cssText='margin-top:7px;font-size:11.5px;';
+    rl.innerHTML='<span class="tal-state hd">On hold</span> '+esc(f.holdReason||'—')+(f.holdNote?' · '+esc(f.holdNote):'');
+    wrap.appendChild(box);wrap.appendChild(rl);
+    var since=talHeldSince(r);if(since){var sl=document.createElement('div');sl.style.cssText='margin-top:4px;font-size:11px;color:var(--muted);';sl.textContent='On hold since '+since;wrap.appendChild(sl);}
+    return wrap;}
+  // "On hold since <Mon D>" from heldAt (epoch-ms string). '' if missing/unparseable (graceful).
+  function talHeldSince(r){var ms=talHeldAtMs(r);if(!ms)return '';var d=new Date(ms);if(isNaN(d.getTime()))return '';try{return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});}catch(e){return '';}}
+  function talConfirmHold(r,reason,note,tr){talHold(r,reason,note);tr=tr||document.getElementById('tr-'+talCss(r.key));if(tr)heldState(r,tr);
+    talCounter();
+    // 30s undo grace, then settle into the persistent inline held row (it stays in the list — no fade).
+    if(talTimers[r.key])clearTimeout(talTimers[r.key]);talTimers[r.key]=setTimeout(function(){talSettleHold(r);},30000);}
+  function talSettleHold(r){delete talTimers[r.key];var tr=document.getElementById('tr-'+talCss(r.key));if(!tr)return;if(!talIsHeld(r))return;tr.classList.add('heldrow');setAct(tr,heldActBox(r,tr));talCounter();}
+  function talUndoHold(r,tr){if(talTimers[r.key]){clearTimeout(talTimers[r.key]);delete talTimers[r.key];}talClearHold(r,'Pending');
+    tr=tr||document.getElementById('tr-'+talCss(r.key));if(tr){tr.style.opacity='1';tr.classList.remove('heldrow');setAct(tr,pendingAct(r,tr));}talCounter();applyFilters();}
+  // Return a held row to plain-pending in place (clears the hold, restores the normal action box).
+  function talReturnFromHold(r,tr){if(talTimers[r.key]){clearTimeout(talTimers[r.key]);delete talTimers[r.key];}talClearHold(r,'Pending');
+    if(talTab==='hold'){talHeldRender();talCounter();applyFilters();return;}   // returning from the On Hold tab: drop the row out of this view (it's now pending)
+    tr=tr||document.getElementById('tr-'+talCss(r.key));if(tr){tr.classList.remove('heldrow');setAct(tr,pendingAct(r,tr));}talCounter();applyFilters();}
+  function editSizes(r,tr){var isT=(r.sw==='TOPS');var fld=isT?'manualTopsSize':'manualPpsSize';var which=isT?'tops':'pps';var td=tr.querySelector(isT?'td.tal-col-tops':'td.tal-col-pps');var cur=talFlag(r)[fld]||(r.isSuit?(r[which+'Lines']||[]).map(function(o){return o.label+': '+(o.sizes||'one size');}).join('; '):((isT?(r.tops&&r.tops.sizes):(r.pps&&r.pps.sizes))||''));var inp=document.createElement('input');inp.type='text';inp.className='tal-inp';inp.value=cur;td.innerHTML='';td.appendChild(inp);inp.focus();var done=false;function save(){if(done)return;done=true;talSetField(r,fld,inp.value.trim());td.innerHTML=colHtml(r,which);applyFilters();}inp.addEventListener('keydown',function(e){if(e.key==='Enter')inp.blur();});inp.addEventListener('blur',save);}
+  // Inline note edit IN the note column (To-Approve table). Replaces the note cell with a text field:
+  // Enter/blur saves via talSetField (same state + postSave as before), Escape cancels. No prompt, and the
+  // note never renders under the Item name on To-Approve rows (item cell always re-rendered with hideNotes).
+  function editNoteCell(r,tr,cell,field,isShoot){
+    var cur=talFlag(r)[field]||'';
+    var inp=document.createElement('input');inp.type='text';inp.className='tal-inp';inp.style.width='100%';
+    if(isShoot)inp.style.borderColor='var(--teal)';
+    inp.placeholder=isShoot?'short shoot note (photo crew)…':'short product note (Tal)…';
+    inp.value=cur;
+    cell.innerHTML='';cell.appendChild(inp);inp.focus();try{inp.select();}catch(e){}
+    var done=false;
+    function finish(){refreshNoteCells(r);var it=tr.querySelector('td.it');if(it)it.innerHTML=itHtml(r,true);}
+    function save(){if(done)return;done=true;talSetField(r,field,inp.value.trim());finish();applyFilters();}
+    function cancel(){if(done)return;done=true;finish();}
+    inp.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();inp.blur();}else if(e.key==='Escape'){e.preventDefault();cancel();}});
+    inp.addEventListener('blur',save);
+  }
+  function addNote(r,tr){var hn=tr.classList.contains('tal-approve-row');
+    if(hn){var cell=tr.querySelector('td.tal-col-pnote');if(cell){editNoteCell(r,tr,cell,'talNote',false);return;}}
+    var it=tr.querySelector('td.it');var cur=talFlag(r).talNote||'';var inp=document.createElement('input');inp.type='text';inp.className='tal-inp';inp.placeholder='short product note (Tal)…';inp.value=cur;var w=document.createElement('div');w.style.marginTop='6px';w.appendChild(inp);it.appendChild(w);inp.focus();var done=false;function save(){if(done)return;done=true;talSetField(r,'talNote',inp.value.trim());it.innerHTML=itHtml(r,hn);refreshNoteCells(r);applyFilters();}inp.addEventListener('keydown',function(e){if(e.key==='Enter')inp.blur();});inp.addEventListener('blur',save);}
+  function addShootNote(r,tr){var hn=tr.classList.contains('tal-approve-row');
+    if(hn){var cell=tr.querySelector('td.tal-col-snote');if(cell){editNoteCell(r,tr,cell,'shootNote',true);return;}}
+    var it=tr.querySelector('td.it');var cur=talFlag(r).shootNote||'';var inp=document.createElement('input');inp.type='text';inp.className='tal-inp';inp.style.borderColor='var(--teal)';inp.placeholder='short shoot note (photo crew)…';inp.value=cur;var w=document.createElement('div');w.style.marginTop='6px';w.appendChild(inp);it.appendChild(w);inp.focus();var done=false;function save(){if(done)return;done=true;talSetField(r,'shootNote',inp.value.trim());it.innerHTML=itHtml(r,hn);refreshNoteCells(r);applyFilters();}inp.addEventListener('keydown',function(e){if(e.key==='Enter')inp.blur();});inp.addEventListener('blur',save);}
+  function talRowEl(r){var tr=document.createElement('tr');tr.id='tr-'+talCss(r.key);
+    var it=document.createElement('td');it.className='it';it.innerHTML=itHtml(r);tr.appendChild(it);
+    var pp=document.createElement('td');pp.className='oh tal-col-pps';pp.appendChild(buildCol(r,'pps'));tr.appendChild(pp);
+    var tp=document.createElement('td');tp.className='oh tal-col-tops';tp.appendChild(buildCol(r,'tops'));tr.appendChild(tp);
+    var act=document.createElement('td');act.className='tal-act';tr.appendChild(act);
+    if(talFlag(r).talStatus==='Approved'){approvedState(r,tr);}
+    else if(talIsHeld(r)&&talTimers[r.key]){heldState(r,tr);}     // mid-undo window — transient held state
+    else if(talIsHeld(r)&&!talAutoReturned(r)){tr.classList.add('heldrow');setAct(tr,heldActBox(r,tr));}   // held row stays On Hold until 7 days OR a new update auto-returns it to To Approve (then renders as a normal approve row)
+    else{setAct(tr,actBox(r,tr));}
+    return tr;}
+
+  // ===== To-Approve 6-column layout =====
+  var talEditCol={};   // per-column size-edit toggles, keyed by r.key+'|pps' / '|tops'
+  function colEditing(r,which){return !!(talEditCol[r.key+'|'+which]||talEditing[r.key]);}
+  // PPS/TOPS cell = existing size chips (buildCol) + a small pencil that scopes inline editing to THIS column.
+  function sizeCell(r,which){
+    var box=document.createElement('div');box.className='tal-sizecell';
+    box.appendChild(buildCol(r,which));
+    var pen=document.createElement('button');pen.type='button';pen.className='tal-pen'+(colEditing(r,which)?' on':'');pen.title='Edit '+which.toUpperCase()+' sizes';pen.innerHTML='&#9998;';
+    pen.addEventListener('click',function(e){e.stopPropagation();talEditCol[r.key+'|'+which]=!colEditing(r,which);renderCols(r);});
+    box.appendChild(pen);return box;}
+  // Shoot-with dropdown (own column). Defaults to the computed choice r.sw; on change updates r.sw exactly like
+  // the old segmented control (talSet reads r.sw on approve — logic unchanged).
+  function swSelect(r){
+    var sel=document.createElement('select');sel.className='tal-select';
+    // Suits AND non-suits get the same PPS | TOPS dropdown (no more disabled "Per piece").
+    ['PPS','TOPS'].forEach(function(opt){var o=document.createElement('option');o.value=opt;o.textContent=opt;sel.appendChild(o);});
+    if(r.sw!=='PPS'&&r.sw!=='TOPS'){   // e.g. a legacy 'per piece' sentinel — fall back to the computed default
+      r.sw=(r.isSuit?((r.topsLines&&r.topsLines.length)?'TOPS':'PPS'):(r.hasTops?'TOPS':'PPS'));
+    }
+    sel.value=r.sw;
+    sel.addEventListener('change',function(){r.sw=sel.value;});
+    return sel;}
+  // Product/Shoot note column: note text (truncated) with a pencil, or a quiet "＋ note". Reuses addNote/addShootNote.
+  function noteCell(r,tr,field){
+    var isShoot=(field==='shootNote');var val=talFlag(r)[field]||'';
+    var box=document.createElement('div');box.className='tal-notecell';
+    if(val){
+      var col=document.createElement('div');col.style.cssText='flex:1;min-width:0;';
+      var txt=document.createElement('span');txt.className='tal-notetext'+(isShoot?' shoot':'');txt.textContent=val;txt.title=val;col.appendChild(txt);
+      var nd=noteDateOf(r.poRef+'|'+r.name,field);if(nd){var dd=document.createElement('div');dd.className='note-date';dd.textContent='· added '+nd;col.appendChild(dd);}
+      box.appendChild(col);
+      var pen=document.createElement('button');pen.type='button';pen.className='tal-pen';pen.title='Edit note';pen.innerHTML='&#9998;';
+      pen.addEventListener('click',function(e){e.stopPropagation();(isShoot?addShootNote:addNote)(r,tr);});box.appendChild(pen);
+    }else{
+      var add=document.createElement('button');add.type='button';add.className='tal-noteadd';add.textContent='＋ note';
+      add.addEventListener('click',function(e){e.stopPropagation();(isShoot?addShootNote:addNote)(r,tr);});box.appendChild(add);}
+    return box;}
+  function refreshNoteCells(r){var tr=document.getElementById('tr-'+talCss(r.key));if(!tr)return;
+    var pc=tr.querySelector('td.tal-col-pnote');if(pc){pc.innerHTML='';pc.appendChild(noteCell(r,tr,'talNote'));}}
+  // Action dropdown (own column): Pending / Approve / Hold — wired to the existing handlers.
+  function actSelect(r,tr){
+    var wrap=document.createElement('div');wrap.className='tal-actcell';
+    var sel=document.createElement('select');sel.className='tal-select tal-actsel';
+    [['pending','Pending'],['approve','Approve'],['hold','Hold']].forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];sel.appendChild(op);});
+    var f=talFlag(r);var cur=f.talStatus==='Approved'?'approve':(talIsHeld(r)?'hold':'pending');
+    sel.value=cur;sel.setAttribute('data-prev',cur);
+    var pick=holdPickEl(r,tr,function(){sel.value=(pick._revertTo||'pending');sel.setAttribute('data-prev',sel.value);});
+    sel.addEventListener('change',function(){
+      var v=sel.value;var prev=sel.getAttribute('data-prev')||'pending';
+      if(v==='approve'){sel.setAttribute('data-prev','approve');talApprove(r,tr);}
+      else if(v==='hold'){pick._revertTo=prev;pick.classList.add('open');}     // reason picker; revert on cancel
+      else{sel.setAttribute('data-prev','pending');var st=talFlag(r).talStatus;if(st==='Approved')talUndo(r,tr);else if(talIsHeld(r))talReturnFromHold(r,tr);}
+    });
+    wrap.appendChild(sel);wrap.appendChild(pick);return wrap;}
+  // Pending action cell: dropdown for the new To-Approve table, legacy action box elsewhere (On Hold / Ready).
+  function pendingAct(r,tr){return (tr&&tr.classList&&tr.classList.contains('tal-approve-row'))?actSelect(r,tr):actBox(r,tr);}
+  // 6-column To-Approve row: Item · PPS(✎) · TOPS(✎) · Shoot with · Product note · Action (Category now lives on the PO bar).
+  function talRowEl8(r){var tr=document.createElement('tr');tr.id='tr-'+talCss(r.key);tr.className='tal-approve-row';
+    var it=document.createElement('td');it.className='it';it.innerHTML=itHtml(r,true);tr.appendChild(it);
+    var pp=document.createElement('td');pp.className='oh tal-col-pps';pp.appendChild(sizeCell(r,'pps'));tr.appendChild(pp);
+    var tp=document.createElement('td');tp.className='oh tal-col-tops';tp.appendChild(sizeCell(r,'tops'));tr.appendChild(tp);
+    var sw=document.createElement('td');sw.className='tal-col-sw';sw.appendChild(swSelect(r));tr.appendChild(sw);
+    var pn=document.createElement('td');pn.className='tal-col-pnote';pn.appendChild(noteCell(r,tr,'talNote'));tr.appendChild(pn);
+    var act=document.createElement('td');act.className='tal-act';tr.appendChild(act);
+    if(talFlag(r).talStatus==='Approved'){approvedState(r,tr);}
+    else if(talIsHeld(r)&&talTimers[r.key]){heldState(r,tr);}
+    else if(talIsHeld(r)&&!talAutoReturned(r)){tr.classList.add('heldrow');setAct(tr,heldActBox(r,tr));}
+    else{setAct(tr,actSelect(r,tr));}
+    return tr;}
+  // Single combined list: pending AND held items both stay visible. Held rows render inline
+  // (amber, with reason + actions). Auto-returned holds simply read as pending again.
+  function inList(r){return true;}
+  // Need-by month key/label for a row (need-by = bulkEtaDate − 14 via needByISO). No date sorts last.
+  function talMonthKey(r){var nb=r.needBy||'';return nb?nb.slice(0,7):'9999-99';}
+  function talMonthLabel(r){var nb=r.needBy||'';return nb?(MONTHS[+nb.slice(5,7)-1]+' '+nb.slice(0,4)):'Need-by date TBD';}
+  // Distinct categories in a PO group, joined by ", " — shown muted beside the PO number (Category column retired).
+  function talGrpCat(grp){var seen={},out=[];grp.forEach(function(r){var c=(r.category||'').trim();if(c&&!seen[c]){seen[c]=true;out.push(c);}});return out.join(', ');}
+  // PO bar markup shared by all three tabs: PO number · muted category · "Need by" pill.
+  function talPoBarHtml(po,cat,needBy){return '<span class="tal-ponum">'+esc(po)+'</span>'+(cat?'<span class="tal-pocat">· '+esc(cat)+'</span>':'')+'<span class="tal-needby">Need by '+(fmtShort(needBy)||'—')+'</span><span style="flex:1"></span>';}
+  // ONE combined list: pending + held rows. Approved rows linger only during their 30s fade window.
+  // Grouped by need-by MONTH (earliest first); within a month, ordered by need-by date asc, sub-grouped by PO.
+  function talRender(){var rows=talRows().filter(inList);var root=$('#tal-view');root.innerHTML='';
+    var list=rows.filter(function(r){var st=talFlag(r).talStatus;return (st!=='Approved'&&st!=='Hold')||talTimers[r.key]||(st==='Hold'&&talAutoReturned(r));});
+    var tq=(talQuery||'').trim().toLowerCase();if(tq)list=list.filter(function(r){return ((r.name||'')+' '+(r.category||'')+' '+(r.poGroup||'')+' '+(r.poRef||'')).toLowerCase().indexOf(tq)!==-1;});
+    if(!list.length){$('#tal-empty').style.display='block';$('#tal-empty').textContent=tq?'No matches for "'+tq+'".':'Nothing has a sample on hand right now.';talCounter();return;}$('#tal-empty').style.display='none';
+    // sort by need-by date ascending (no date last), then PO so the within-month sub-blocks stay tidy
+    list.sort(function(a,b){return (a.needBy||'9999-99-99').localeCompare(b.needBy||'9999-99-99')||(a.poGroup||'').localeCompare(b.poGroup||'');});
+    var months={},morder=[];
+    list.forEach(function(r){var mk=talMonthKey(r);if(!months[mk]){months[mk]={label:talMonthLabel(r),rows:[]};morder.push(mk);}months[mk].rows.push(r);});
+    morder.sort();
+    morder.forEach(function(mk){var mb=months[mk];
+      var mh=document.createElement('div');mh.className='tal-month';mh.textContent='Photos needed — '+mb.label;root.appendChild(mh);
+      var groups={},order=[];
+      mb.rows.forEach(function(r){if(!groups[r.poGroup]){groups[r.poGroup]=[];order.push(r.poGroup);}groups[r.poGroup].push(r);});
+      order.forEach(function(po){var grp=groups[po];var box=document.createElement('div');box.className='tal-po';
+        var bar=document.createElement('div');bar.className='tal-pobar';
+        bar.innerHTML=talPoBarHtml(po,talGrpCat(grp),grp[0].needBy);
+        var pall=document.createElement('button');pall.className='talbtn';pall.style.fontSize='10.5px';pall.style.padding='4px 9px';pall.textContent='Approve all in PO';pall.addEventListener('click',function(){grp.forEach(function(r){talApprove(r);});});
+        bar.appendChild(pall);box.appendChild(bar);
+        var t=document.createElement('table');t.className='tal-approve-table';t.innerHTML='<thead><tr><th>Item</th><th style="width:190px">PPS</th><th style="width:190px">TOPS</th><th style="width:112px">Shoot with</th><th style="width:230px">Product note</th><th style="width:126px">Action</th></tr></thead><tbody></tbody>';
+        var tb=t.querySelector('tbody');grp.forEach(function(r){tb.appendChild(talRowEl8(r));});box.appendChild(t);root.appendChild(box);});
+    });
+    talCounter();}
+  // Tab 2 — Ready to Shoot: the previously-APPROVED rows. Same need-by MONTH grouping (earliest first).
+  // Each row renders via talRowEl, which shows the "✓ Ready to shoot · via PPS/TOPS" badge + Undo for approved items.
+  function talReadyRender(){var rows=talRows().filter(inList);var root=$('#tal-ready-view');root.innerHTML='';
+    var list=rows.filter(function(r){return talFlag(r).talStatus==='Approved';});
+    var tq=(talQuery||'').trim().toLowerCase();if(tq)list=list.filter(function(r){return ((r.name||'')+' '+(r.category||'')+' '+(r.poGroup||'')+' '+(r.poRef||'')).toLowerCase().indexOf(tq)!==-1;});
+    if(!list.length){$('#tal-ready-empty').style.display='block';$('#tal-ready-empty').textContent=tq?'No approved matches for "'+tq+'".':'Nothing has been approved yet.';talCounter();return;}$('#tal-ready-empty').style.display='none';
+    list.sort(function(a,b){return (a.needBy||'9999-99-99').localeCompare(b.needBy||'9999-99-99')||(a.poGroup||'').localeCompare(b.poGroup||'');});
+    var months={},morder=[];
+    list.forEach(function(r){var mk=talMonthKey(r);if(!months[mk]){months[mk]={label:talMonthLabel(r),rows:[]};morder.push(mk);}months[mk].rows.push(r);});
+    morder.sort();
+    morder.forEach(function(mk){var mb=months[mk];
+      var mh=document.createElement('div');mh.className='tal-month';mh.textContent='Photos needed — '+mb.label;root.appendChild(mh);
+      var groups={},order=[];
+      mb.rows.forEach(function(r){if(!groups[r.poGroup]){groups[r.poGroup]=[];order.push(r.poGroup);}groups[r.poGroup].push(r);});
+      order.forEach(function(po){var grp=groups[po];var box=document.createElement('div');box.className='tal-po';
+        var bar=document.createElement('div');bar.className='tal-pobar';
+        bar.innerHTML=talPoBarHtml(po,talGrpCat(grp),grp[0].needBy);
+        box.appendChild(bar);
+        var t=document.createElement('table');t.innerHTML='<thead><tr><th>Item</th><th>PPS</th><th>TOPS</th><th style="width:240px">Status</th></tr></thead><tbody></tbody>';
+        var tb=t.querySelector('tbody');grp.forEach(function(r){tb.appendChild(talRowEl(r));});box.appendChild(t);root.appendChild(box);});
+    });
+    talCounter();}
+  // Tab 2 — On Hold: the HELD rows. Same need-by MONTH grouping (earliest first).
+  // Each renders via talRowEl, which for a held row shows the inline held action box
+  // (Approve → clears hold + moves to Ready, Return to approvals) plus the reason and "On hold since" line.
+  function talHeldRender(){var rows=talRows().filter(inList);var root=$('#tal-hold-view');root.innerHTML='';
+    var list=rows.filter(function(r){return talIsHeld(r)&&!talAutoReturned(r);});
+    var tq=(talQuery||'').trim().toLowerCase();if(tq)list=list.filter(function(r){return ((r.name||'')+' '+(r.category||'')+' '+(r.poGroup||'')+' '+(r.poRef||'')).toLowerCase().indexOf(tq)!==-1;});
+    if(!list.length){$('#tal-hold-empty').style.display='block';$('#tal-hold-empty').textContent=tq?'No on-hold matches for "'+tq+'".':'Nothing is on hold right now.';talCounter();return;}$('#tal-hold-empty').style.display='none';
+    list.sort(function(a,b){return (a.needBy||'9999-99-99').localeCompare(b.needBy||'9999-99-99')||(a.poGroup||'').localeCompare(b.poGroup||'');});
+    var months={},morder=[];
+    list.forEach(function(r){var mk=talMonthKey(r);if(!months[mk]){months[mk]={label:talMonthLabel(r),rows:[]};morder.push(mk);}months[mk].rows.push(r);});
+    morder.sort();
+    morder.forEach(function(mk){var mb=months[mk];
+      var mh=document.createElement('div');mh.className='tal-month';mh.textContent='Photos needed — '+mb.label;root.appendChild(mh);
+      var groups={},order=[];
+      mb.rows.forEach(function(r){if(!groups[r.poGroup]){groups[r.poGroup]=[];order.push(r.poGroup);}groups[r.poGroup].push(r);});
+      order.forEach(function(po){var grp=groups[po];var box=document.createElement('div');box.className='tal-po';
+        var bar=document.createElement('div');bar.className='tal-pobar';
+        bar.innerHTML=talPoBarHtml(po,talGrpCat(grp),grp[0].needBy);
+        box.appendChild(bar);
+        var t=document.createElement('table');t.innerHTML='<thead><tr><th>Item</th><th>PPS</th><th>TOPS</th><th style="width:240px">Action</th></tr></thead><tbody></tbody>';
+        var tb=t.querySelector('tbody');grp.forEach(function(r){tb.appendChild(talRowEl(r));});box.appendChild(t);root.appendChild(box);});
+    });
+    talCounter();}
+  // Switch between the three tabs. 'need' = To Approve (toolbar + #tal-view), 'hold' = On Hold (#tal-hold-view), 'ready' = Ready to Shoot (#tal-ready-view).
+  function talShowTab(which){talTab=which;
+    var tn=document.getElementById('tal-tab-need'),th=document.getElementById('tal-tab-hold'),tr2=document.getElementById('tal-tab-ready');
+    if(tn)tn.classList.toggle('on',which==='need');if(th)th.classList.toggle('on',which==='hold');if(tr2)tr2.classList.toggle('on',which==='ready');
+    document.getElementById('tal-toolbar-need').querySelector('#tal-all').style.display=which==='need'?'':'none';
+    $('#tal-view').style.display=which==='need'?'block':'none';
+    $('#tal-hold-view').style.display=which==='hold'?'block':'none';
+    $('#tal-ready-view').style.display=which==='ready'?'block':'none';
+    $('#tal-empty').style.display='none';$('#tal-hold-empty').style.display='none';$('#tal-ready-empty').style.display='none';
+    if(which==='need')talRender();else if(which==='hold')talHeldRender();else talReadyRender();}
+  function talOpen(){talShowTab('need');$('#talOverlay').style.display='block';document.body.style.overflow='hidden';}
+  function talClose(){$('#talOverlay').style.display='none';document.body.style.overflow='';}
+
+  // ---- header filter/sort (drives the same state.filters + a small sort state) ----
+  function statusLabel(v){return {all:'All',ready:'Ready',needs:'Needs approval',notarrived:'Not yet arrived'}[v]||'All';}
+  function shotLabel(v){return {all:'All',active:'Not shot',shot:'Shot'}[v]||'All';}
+  // Status sub-filter is only meaningful in the Not-shot view (see matches()); dim the Status header otherwise.
+  function syncSubFilterVis(){var sh=document.querySelector('.ptable-head .hcell[data-menu="status"]');if(sh)sh.classList.toggle('disabled',state.filters.shot!=='active');}
+  function updateHeaderUI(){
+    document.querySelectorAll('.ptable-head .hcell[data-sort]').forEach(function(h){var k=h.getAttribute('data-sort'),aff=h.querySelector('.aff');var on=state.sort.key===k;h.classList.toggle('active',on);if(aff)aff.textContent=on?(state.sort.dir>0?' ▲':' ▼'):'';});
+    var sh=document.querySelector('.ptable-head .hcell[data-menu="status"]');if(sh){var c=sh.querySelector('.cur');if(c)c.textContent=state.filters.ready==='all'?'':statusLabel(state.filters.ready);sh.classList.toggle('active',state.filters.ready!=='all');}
+    var so=document.querySelector('.ptable-head .hcell[data-menu="shot"]');if(so){var c2=so.querySelector('.cur');if(c2)c2.textContent=state.filters.shot==='active'?'':shotLabel(state.filters.shot);so.classList.toggle('active',state.filters.shot!=='active');}
+    syncSubFilterVis();
+  }
+  function closeMenus(){var m=document.querySelector('.hmenu');if(m&&m.parentNode)m.parentNode.removeChild(m);document.removeEventListener('mousedown',docCloseMenu,true);}
+  function docCloseMenu(e){if(!e.target.closest||(!e.target.closest('.hmenu')&&!e.target.closest('.hmenu-trigger')))closeMenus();}
+  function openMenu(type,anchor){
+    closeMenus();
+    var opts=type==='status'?[['all','All'],['ready','Ready'],['needs','Needs approval'],['notarrived','Not yet arrived']]:[['all','All'],['active','Not shot'],['shot','Shot']];
+    var cur=type==='status'?state.filters.ready:state.filters.shot;
+    var m=document.createElement('div');m.className='hmenu';
+    opts.forEach(function(o){var it=document.createElement('div');it.className='hmenu-item'+(o[0]===cur?' sel':'');it.textContent=o[1];it.addEventListener('click',function(e){e.stopPropagation();selectFilter(type,o[0]);closeMenus();});m.appendChild(it);});
+    document.body.appendChild(m);
+    var r=anchor.getBoundingClientRect();var w=m.offsetWidth;var left=Math.min(r.left,window.innerWidth-w-8);m.style.top=(r.bottom+6)+'px';m.style.left=Math.max(8,left)+'px';
+    setTimeout(function(){document.addEventListener('mousedown',docCloseMenu,true);},0);
+  }
+  function selectFilter(type,v){if(type==='status')state.filters.ready=v;else state.filters.shot=v;syncSubFilterVis();applyFilters();renderQueue();}
+  function clickSort(k){if(state.sort.key===k)state.sort.dir=-state.sort.dir;else{state.sort.key=k;state.sort.dir=1;}applyFilters();}
+
+  // ---- Sizes filter dropdown (multi-select checkboxes; panel appended to <body> so no overflow:hidden ancestor clips it) ----
+  function updateSizeBtn(){var b=document.getElementById('sizebtn');if(!b)return;var n=(state.filters.size||[]).length;b.textContent=n?('Sizes ('+n+')'):'Sizes';b.classList.toggle('active',n>0);}
+  function closeSizeMenu(){var m=document.querySelector('.sizemenu');if(m&&m.parentNode)m.parentNode.removeChild(m);document.removeEventListener('mousedown',docCloseSize,true);}
+  function docCloseSize(e){if(!e.target.closest||(!e.target.closest('.sizemenu')&&!e.target.closest('#sizebtn')))closeSizeMenu();}
+  function openSizeMenu(anchor){
+    if(document.querySelector('.sizemenu')){closeSizeMenu();return;}   // re-click closes
+    var sizes=allSizes();
+    var m=document.createElement('div');m.className='sizemenu';
+    var hd=document.createElement('div');hd.className='hd';hd.innerHTML='<span class="t">Filter by size</span>';
+    var clr=document.createElement('button');clr.type='button';clr.className='clr';clr.textContent='Clear';
+    clr.addEventListener('click',function(e){e.stopPropagation();state.filters.size=[];updateSizeBtn();m.querySelectorAll('input[type=checkbox]').forEach(function(c){c.checked=false;});applyFilters();renderQueue();});
+    hd.appendChild(clr);m.appendChild(hd);
+    if(!sizes.length){var em=document.createElement('div');em.className='empty';em.textContent='No sizes available.';m.appendChild(em);}
+    else{var grid=document.createElement('div');grid.className='grid';
+      sizes.forEach(function(s){var lab=document.createElement('label');var cb=document.createElement('input');cb.type='checkbox';cb.value=s;cb.checked=state.filters.size.indexOf(s)!==-1;
+        cb.addEventListener('change',function(){var arr=state.filters.size.slice();var idx=arr.indexOf(s);if(cb.checked){if(idx===-1)arr.push(s);}else if(idx!==-1)arr.splice(idx,1);state.filters.size=arr;updateSizeBtn();applyFilters();renderQueue();});
+        lab.appendChild(cb);lab.appendChild(document.createTextNode(s));grid.appendChild(lab);});
+      m.appendChild(grid);}
+    document.body.appendChild(m);
+    var r=anchor.getBoundingClientRect();var w=m.offsetWidth;var left=Math.min(r.left,window.innerWidth-w-8);
+    m.style.top=(r.bottom+6)+'px';m.style.left=Math.max(8,left)+'px';
+    setTimeout(function(){document.addEventListener('mousedown',docCloseSize,true);},0);
+  }
+
+  // ---- events ----
+  document.querySelectorAll('.ptable-head .hcell[data-sort]').forEach(function(h){h.addEventListener('click',function(){clickSort(h.getAttribute('data-sort'));});});
+  document.querySelector('.ptable-head .hcell[data-menu="status"]').addEventListener('click',function(e){e.stopPropagation();openMenu('status',this);});
+  document.querySelector('.ptable-head .hcell[data-menu="shot"]').addEventListener('click',function(e){e.stopPropagation();openMenu('shot',this);});
+  syncSubFilterVis();
+  $('#search').addEventListener('input',function(e){state.filters.q=e.target.value;applyFilters();renderQueue();suggest();});
+  // Refresh now = push any unsaved local writes, clear this device's local cache, then HARD-reload (cache-busted) fresh from the server.
+  $('#refresh').addEventListener('click',function(){try{repostPending();}catch(e){}try{localStorage.removeItem(LS);localStorage.removeItem(LSR);localStorage.removeItem(LSP);}catch(e){}setTimeout(function(){try{location.replace(location.origin+location.pathname+'?_hr='+Date.now());}catch(e){location.reload();}},500);});
+  $('#tallink').addEventListener('click',talOpen);
+  $('#tal-close').addEventListener('click',talClose);
+  $('#tal-all').addEventListener('click',function(){talRows().forEach(function(r){talApprove(r);});});
+  $('#tal-search').addEventListener('input',function(e){talQuery=e.target.value;if(talTab==='ready')talReadyRender();else if(talTab==='hold')talHeldRender();else talRender();});
+  $('#tal-tab-need').addEventListener('click',function(){talShowTab('need');});
+  $('#tal-tab-hold').addEventListener('click',function(){talShowTab('hold');});
+  $('#tal-tab-ready').addEventListener('click',function(){talShowTab('ready');});
+  $('#sizebtn').addEventListener('click',function(e){e.stopPropagation();openSizeMenu(this);});
+  $('#export').addEventListener('click',exportExcel);
+
+  $('#src').textContent=CONFIG.owner+'/'+CONFIG.repo+'/'+CONFIG.file+'  ·  reads the same feed';
+  loadLocal();loadNoteDates();load();loadSearchPool();loadCatalog();liveLoadStatus();loadReshoot();setInterval(liveLoadStatus,3*60*1000);setInterval(loadReshoot,3*60*1000);
+})();
+</script>
+</body>
+</html>
